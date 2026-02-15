@@ -33,8 +33,10 @@ class Downloader:
         self.semaphore = asyncio.Semaphore(request_config.get('concurrency', 10))
         self.gallery_title = "output"
         output_config = config.get('output', {})
-        Path(output_config.get('image_folder', 'data/ehentai/tempImages')).mkdir(parents=True, exist_ok=True)
-        Path(output_config.get('pdf_folder', 'data/ehentai/pdf')).mkdir(parents=True, exist_ok=True)
+        self.image_folder = str(Path(output_config.get('image_folder', 'data/ehentai/tempImages')).absolute())
+        self.pdf_folder = str(Path(output_config.get('pdf_folder', 'data/ehentai/pdf')).absolute())
+        Path(self.image_folder).mkdir(parents=True, exist_ok=True)
+        Path(self.pdf_folder).mkdir(parents=True, exist_ok=True)
 
     def _prepare_request_params(self) -> Dict[str, Any]:
         """准备通用请求参数并清理 None 值"""
@@ -110,7 +112,6 @@ class Downloader:
         request_config = self.config.get('request', {})
         max_retries = request_config.get('max_retries', 3)
         output_config = self.config.get('output', {})
-        image_folder = output_config.get('image_folder', 'data/ehentai/tempImages')
         jpeg_quality = output_config.get('jpeg_quality', 85)
         for attempt in range(max_retries):
             try:
@@ -122,7 +123,7 @@ class Downloader:
                         if len(content) < 1024:
                             raise ValueError("无效的图片内容")
 
-                        image_path = Path(image_folder) / f"{image_number}.jpg"
+                        image_path = Path(self.image_folder) / f"{image_number}.jpg"
 
                         async with aiofiles.open(image_path, "wb") as file:
                             await file.write(content)
@@ -176,7 +177,7 @@ class Downloader:
         if not self.gallery_title:
             self.gallery_title = "gallery"
             
-        pdf_folder = output_config.get('pdf_folder', 'data/ehentai/pdf')
+        pdf_folder = self.pdf_folder
         all_files = os.listdir(pdf_folder)
         pattern = re.compile(rf"^{re.escape(self.gallery_title)}(?: part \d+)?\.pdf$")
         matching_files = [
@@ -186,7 +187,7 @@ class Downloader:
         files = natsorted(matching_files)
         if files:
             await event.send(event.plain_result("已找到本地画廊，发送中..."))
-            await self.uploader.upload_file(event, pdf_folder, self.gallery_title)
+            await self.uploader.upload_file(event, self.pdf_folder, self.gallery_title)
             return True
 
         await event.send(event.plain_result("正在下载画廊图片，请稍候..."))
@@ -278,13 +279,14 @@ class Downloader:
     async def merge_images_to_pdf(self, event: AstrMessageEvent, gallery_title: str) -> str:
         await event.send(event.plain_result("正在将图片合并为pdf文件，请稍候..."))
         output_config = self.config.get('output', {})
-        image_folder = output_config.get('image_folder', 'data/ehentai/tempImages')
-        pdf_folder = output_config.get('pdf_folder', 'data/ehentai/pdf')
+        jpeg_quality = output_config.get('jpeg_quality', 85)
         max_filename_length = output_config.get('max_filename_length', 200)
         max_pages = output_config.get('max_pages_per_pdf', 200)
-        image_files = natsorted(glob.glob(str(Path(image_folder) / "*.jpg")))
+        image_files = natsorted(glob.glob(str(Path(self.image_folder) / "*.jpg")))
         if not image_files:
-            logger.warning("没有可用的图片文件")
+            error_msg = f"合并失败：在目录 {self.image_folder} 中未找到下载好的图片 (.jpg)。请检查磁盘权限或配置。"
+            logger.error(error_msg)
+            raise ValueError(error_msg)
         
         # 导入HTML解析器以使用文件名清理函数
         from .html_parser import HTMLParser
@@ -293,7 +295,7 @@ class Downloader:
         pdf_safe_length = max_filename_length - 20  # 为 " part XX.pdf" 预留空间
         safe_title = HTMLParser.sanitize_filename(gallery_title, max_length=pdf_safe_length)
         
-        pdf_dir = Path(pdf_folder)
+        pdf_dir = Path(self.pdf_folder)
         
         if 0 < max_pages < len(image_files):
             total = math.ceil(len(image_files) / max_pages)
