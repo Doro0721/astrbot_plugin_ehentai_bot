@@ -72,23 +72,31 @@ class Downloader:
         params = self._prepare_request_params()
         request_config = self.config.get('request', {})
         max_retries = request_config.get('max_retries', 3)
+        last_exception = None
         for attempt in range(max_retries):
             try:
                 async with self.semaphore:
                     async with session.get(url, **params) as response:
                         response.raise_for_status()
                         return await response.text()
-            except asyncio.TimeoutError:
+            except asyncio.TimeoutError as e:
+                last_exception = e
                 logger.warning(f"请求超时，尝试 {attempt + 1}/{max_retries}: {url}")
             except aiohttp.ClientResponseError as e:
+                last_exception = e
                 logger.warning(f"HTTP错误 {e.status}，尝试 {attempt + 1}/{max_retries}: {url}")
+                if e.status in [403, 404]: # 对于不可恢复的错误，不重试
+                    break
             except Exception as e:
+                last_exception = e
                 logger.warning(f"尝试 {attempt + 1}/{max_retries} 失败: {url} - {str(e)}")
 
-            await asyncio.sleep(2 ** attempt)
+            if attempt < max_retries - 1:
+                await asyncio.sleep(2 ** attempt)
 
-        logger.error(f"请求失败，放弃: {url}")
-        return None
+        error_msg = f"请求失败 ({url}): {str(last_exception)}"
+        logger.error(error_msg)
+        raise Exception(error_msg)
 
     async def download_image_with_fixed_number(self, session: aiohttp.ClientSession, img_url: str,
                                                image_number: int) -> bool:
@@ -150,9 +158,10 @@ class Downloader:
             return {"success": False, "error": str(e), "item": item}
 
     async def process_pagination(self, event: AstrMessageEvent, session: aiohttp.ClientSession, gallery_url: str) -> bool:
-        main_html = await self.fetch_with_retry(session, gallery_url)
-        if not main_html:
-            raise ValueError("无法获取主页面内容")
+        try:
+            main_html = await self.fetch_with_retry(session, gallery_url)
+        except Exception as e:
+            raise Exception(f"无法获取主页面内容。原因：{str(e)}。请检查您的代理(Proxy)配置或网站访问限制。")
 
         output_config = self.config.get('output', {})
         request_config = self.config.get('request', {})
