@@ -6,7 +6,9 @@ from .utils.html_parser import HTMLParser
 from .utils.message_adapter import MessageAdapter
 from pathlib import Path
 import os
+import io
 import re
+import json
 import aiohttp
 import asyncio
 import glob
@@ -14,6 +16,7 @@ import logging
 import tempfile
 from typing import List, Optional, Dict, Any, Union
 from urllib.parse import urlparse
+from PIL import Image as PILImage, ImageDraw, ImageFont
 try:
     from aiohttp_socks import ProxyConnector
     HAS_SOCKS = True
@@ -23,7 +26,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-@register("astrbot_plugin_ehentai_bot", "drdon1234", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "3.3")
+@register("astrbot_plugin_ehentai_bot", "drdon1234", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "3.4")
 class EHentaiBot(Star):
     @staticmethod
     def _parse_proxy_config(proxy_str: str) -> Dict[str, Any]:
