@@ -10,6 +10,7 @@ import glob
 import math
 import img2pdf
 import logging
+import traceback
 from pathlib import Path
 from natsort import natsorted
 from PIL import Image
@@ -89,12 +90,13 @@ class Downloader:
                     break
             except Exception as e:
                 last_exception = e
-                logger.warning(f"尝试 {attempt + 1}/{max_retries} 失败: {url} - {str(e)}")
+                stack_info = traceback.format_exc()
+                logger.warning(f"尝试 {attempt + 1}/{max_retries} 失败: {url} - {str(e)}\n{stack_info}")
 
             if attempt < max_retries - 1:
                 await asyncio.sleep(2 ** attempt)
 
-        error_msg = f"请求失败 ({url}): {str(last_exception)}"
+        error_msg = f"请求失败 ({url}): {str(last_exception)}\n{traceback.format_exc()}"
         logger.error(error_msg)
         raise Exception(error_msg)
 
