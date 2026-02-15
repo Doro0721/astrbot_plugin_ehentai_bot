@@ -932,7 +932,7 @@ class EHentaiBot(Star):
             # 下载完成后对原消息添加表情回应
             if original_msg_id:
                 try:
-                    await self.uploader.set_msg_emoji_like(str(original_msg_id), "76")  # 76=赞
+                    await self.uploader.set_msg_emoji_like(str(original_msg_id), "124")  # 124=OK
                 except Exception as e:
                     logger.warning(f"表情回应失败: {e}")
             
