@@ -37,20 +37,24 @@ class Downloader:
         Path(output_config.get('pdf_folder', 'data/ehentai/pdf')).mkdir(parents=True, exist_ok=True)
 
     def _prepare_request_params(self) -> Dict[str, Any]:
-        """准备通用请求参数"""
+        """准备通用请求参数并清理 None 值"""
         request_config = self.config.get('request', {})
         proxy_conf = request_config.get('proxy', {})
         website = request_config.get('website', 'e-hentai')
         cookies = request_config.get('cookies') if website == 'exhentai' else None
         headers = request_config.get('headers', {})
-        return {
-            "headers": headers,
+        
+        params = {
+            "headers": {k: str(v) for k, v in headers.items() if v is not None},
             "proxy": proxy_conf.get('url'),
             "proxy_auth": proxy_conf.get('auth'),
             "timeout": aiohttp.ClientTimeout(total=request_config.get('timeout', 30)),
             "ssl": False,
             "cookies": cookies
         }
+        
+        # 移除值为 None 的项，防止 aiohttp 内部处理报错
+        return {k: v for k, v in params.items() if v is not None}
 
     async def _get_session(self) -> aiohttp.ClientSession:
         """根据配置创建一个带有正确代理设置的 aiohttp.ClientSession"""
