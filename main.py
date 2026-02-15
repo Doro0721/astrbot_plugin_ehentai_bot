@@ -29,7 +29,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-@register("astrbot_plugin_ehentai_bot", "Doro0721", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "4.1.2")
+@register("astrbot_plugin_ehentai_bot", "Doro0721", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "4.1.3")
 class EHentaiBot(Star):
     @staticmethod
     def _parse_proxy_config(proxy_str: str) -> Dict[str, Any]:
@@ -823,42 +823,84 @@ class EHentaiBot(Star):
             gj = soup.select_one("#gj")
             display_title = gn.text if gn else (gj.text if gj else title)
             
-            # 标签
+            # 标签映射表
+            tag_mapping = {
+                "language": "语言",
+                "parody": "原作",
+                "character": "角色",
+                "group": "社团",
+                "artist": "艺术家",
+                "female": "女性",
+                "male": "男性",
+                "mixed": "混合",
+                "other": "其他",
+                "misc": "其他"
+            }
+            
+            # 标签解析
             tag_rows = soup.select("#taglist tr")
             tags_text = ""
             for row in tag_rows:
                 tds = row.find_all("td")
                 if len(tds) == 2:
-                    cat = tds[0].text.strip(":")
+                    cat_raw = tds[0].text.strip(":")
+                    cat_cn = tag_mapping.get(cat_raw, cat_raw)
+                    
                     tag_links = tds[1].find_all("a")
-                    tag_names = [t.text.strip().split(" | ")[0] for t in tag_links] # 去除翻译部分
-                    # 精简显示，只取前几个
-                    tags_text += f"{cat}: {', '.join(tag_names[:5])}\n"
-            
+                    # 提取标签名并处理为 #tag 格式
+                    tag_names = []
+                    for t in tag_links:
+                        raw_tag = t.text.strip().split(" | ")[0]
+                        # 处理中间的空格，例如 "big breasts" -> "#bigbreasts" 或者保留空格? 
+                        # 用户示例: #橘光明 #橘希望. 
+                        # E-h tag 通常是空格分隔单词. 
+                        # 让我们保持原样但加#
+                        tag_names.append(f"#{raw_tag}")
+                    
+                    if tag_names:
+                        tags_text += f" {cat_cn}: {' '.join(tag_names)}\n"
+
             # 构建消息
             chain = []
             
-            # 第一段：标题和ID
-            header = f"📖 {display_title}\n"
-            header += f"🔖 ID: {gid} | 🔗 Token: {token}\n"
-            chain.append(Plain(header))
+            # 第一段：标题
+            # 用户期望: 图片\n语言: #汉语...
+            # 这里的 "图片" 可能是指封面图? 或者只是一个标题头? 
+            # 用户示例第一行写的是 "图片"，然后下面是 tag。
+            # 但用户也想要 "只要是链接的歌就自动得发送送详情然后下载"
+            # 让我们把标题放第一行。
             
-            # 图片
+            header = f"{display_title}\n"
+            chain.append(Plain(header))
+
+            # Tag 详情
+            if tags_text:
+                chain.append(Plain(tags_text))
+            
+            # 图片 (打码)
             if cover_url:
                 async with await self.downloader._get_session() as session:
                     img_bytes = await self.downloader.fetch_bytes_with_retry(session, cover_url)
                     if img_bytes:
-                        img_b64 = base64.b64encode(img_bytes).decode('utf-8')
-                        chain.append(Image.fromBase64(img_b64))
+                        # 处理图片添加色块
+                        try:
+                            img = PILImage.open(io.BytesIO(img_bytes))
+                            self.add_random_blocks(img)
+                            
+                            buffered = io.BytesIO()
+                            img.save(buffered, format="JPEG")
+                            img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                            chain.append(Image.fromBase64(img_b64))
+                        except Exception as e:
+                            logger.error(f"处理封面图失败: {e}")
+                            # 如果处理失败，尝试原图发送? 或者跳过
             
-            # 详情
-            info = f"\n━━━━━━━━━━━━\n"
-            if tags_text:
-                info += f"🏷️ 标签:\n{tags_text}"
-            info += f"\n💡 回复 '下载' 或使用 /eh {gid} 下载此画廊"
-            chain.append(Plain(info))
+            # 发送详情
+            await event.send(event.chain_result(chain))
             
-            yield event.chain_result(chain)
+            # 自动下载
+            # "只要是链接的歌就自动得发送送详情然后下载发送不要问回复"
+            await self.download_gallery(event, gid, token)
             
         except Exception as e:
             logger.error(f"链接解析失败: {e}")
