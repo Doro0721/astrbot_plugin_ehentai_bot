@@ -29,7 +29,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-@register("astrbot_plugin_ehentai_bot", "Doro0721", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "4.1.4")
+@register("astrbot_plugin_ehentai_bot", "Doro0721", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "4.1.5")
 class EHentaiBot(Star):
     @staticmethod
     def _parse_proxy_config(proxy_str: str) -> Dict[str, Any]:
@@ -903,6 +903,7 @@ class EHentaiBot(Star):
                 chain.append(Plain(tags_text))
             
             # 图片 (打码)
+            logger.info(f"封面 URL: {cover_url}")
             if cover_url:
                 async with await self.downloader._get_session() as session:
                     img_bytes = await self.downloader.fetch_bytes_with_retry(session, cover_url)

@@ -112,15 +112,19 @@ class Downloader:
         raise Exception(error_msg)
     
     async def fetch_bytes_with_retry(self, session: aiohttp.ClientSession, url: str) -> Optional[bytes]:
-        """获取二进制内容（如图片）"""
+        """获取二进制内容（如图片），携带 cookies 和代理参数"""
+        params = self._prepare_request_params()
         request_config = self.config.get('request', {})
         max_retries = request_config.get('max_retries', 3)
         for attempt in range(max_retries):
             try:
-                async with session.get(url, timeout=10) as response:
+                async with session.get(url, **params) as response:
                     if response.status == 200:
                         return await response.read()
-            except Exception:
+                    else:
+                        logger.warning(f"封面下载 HTTP {response.status}: {url}")
+            except Exception as e:
+                logger.warning(f"封面下载失败 (尝试{attempt+1}/{max_retries}): {e}")
                 await asyncio.sleep(1)
         return None
 
