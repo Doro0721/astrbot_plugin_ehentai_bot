@@ -29,7 +29,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-@register("astrbot_plugin_ehentai_bot", "Doro0721", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "4.1.5")
+@register("astrbot_plugin_ehentai_bot", "Doro0721", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "4.1.6")
 class EHentaiBot(Star):
     @staticmethod
     def _parse_proxy_config(proxy_str: str) -> Dict[str, Any]:
@@ -902,24 +902,26 @@ class EHentaiBot(Star):
             if tags_text:
                 chain.append(Plain(tags_text))
             
-            # 图片 (打码)
+            # 图片 (打码) - 使用专用的封面下载方法
             logger.info(f"封面 URL: {cover_url}")
             if cover_url:
-                async with await self.downloader._get_session() as session:
-                    img_bytes = await self.downloader.fetch_bytes_with_retry(session, cover_url)
-                    if img_bytes:
-                        # 处理图片添加色块
-                        try:
-                            img = PILImage.open(io.BytesIO(img_bytes))
-                            self.add_random_blocks(img)
-                            
-                            buffered = io.BytesIO()
-                            img.save(buffered, format="JPEG")
-                            img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
-                            chain.append(Image.fromBase64(img_b64))
-                        except Exception as e:
-                            logger.error(f"处理封面图失败: {e}")
-                            # 如果处理失败，尝试原图发送? 或者跳过
+                try:
+                    semaphore = asyncio.Semaphore(1)
+                    async with await self._get_session() as session:
+                        cover_img_obj = await self.download_thumbnail(cover_url, session, semaphore)
+                    if cover_img_obj:
+                        self.add_random_blocks(cover_img_obj)
+                        buffered = io.BytesIO()
+                        cover_img_obj.save(buffered, format="JPEG")
+                        img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                        chain.append(Image.fromBase64(img_b64))
+                        logger.info("封面图下载成功")
+                    else:
+                        logger.warning("封面图下载返回 None")
+                except Exception as e:
+                    logger.error(f"处理封面图失败: {e}")
+            else:
+                logger.warning("未找到封面 URL")
             
             # 发送详情
             await event.send(event.chain_result(chain))

@@ -232,7 +232,7 @@ class Downloader:
         if not all_subpage_urls:
             raise ValueError("未在画廊页中解析到任何图片链接。请检查：\n1. 链接是否正确\n2. 如果是里站(ExHentai)，Cookie(igneous等)是否已正确配置并有效\n3. 是否遇到了 Sad Panda 限制")
         
-        logger.info(f"解析完成，共 {len(all_subpage_urls)} 个页面，开始下载...")
+        await event.send(event.plain_result(f"解析完成，共 {len(all_subpage_urls)} 个页面，开始下载..."))
         
         queue = asyncio.Queue()
         for item in all_subpage_urls:
