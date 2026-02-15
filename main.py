@@ -708,43 +708,9 @@ class EHentaiBot(Star):
             if temp_file_path and os.path.exists(temp_file_path):
                 os.unlink(temp_file_path)
 
-    @filter.command("eh翻页")
-    async def jump_to_page(self, event: AstrMessageEvent):
-        args = self.parse_command(event.message_str)
-        if len(args) != 1:
-            await event.send(event.plain_result("参数错误，翻页操作只需要一个参数（页码）"))
-            return
-    
-        page_num = args[0]
-        if not page_num.isdigit() or int(page_num) < 1:
-            await event.send(event.plain_result("页码应该是大于0的整数"))
-            return
-    
-        output_config = self.config.get('output', {})
-        search_cache_folder = Path(output_config.get('search_cache_folder', 'data/ehentai/searchCache'))
-        cache_file = search_cache_folder / f"{event.get_sender_id()}.json"
-    
-        if not cache_file.exists():
-            await event.send(event.plain_result("未找到搜索记录，请先使用'搜eh'命令"))
-            return
-    
-        with open(cache_file, 'r', encoding='utf-8') as f:
-            cache_data = json.load(f)
-    
-        if 'params' not in cache_data:
-            await event.send(event.plain_result("缓存文件中缺少必要参数信息，请使用'搜eh'命令重新搜索"))
-            return
-    
-        params = cache_data['params']
-        
-        if 'tags' not in params:
-            await event.send(event.plain_result("缓存文件中未找到关键词信息，无法跳转到指定页"))
-            return
-    
-        params['target_page'] = int(page_num)
-        event.message_str = f"搜eh {params['tags']} {params['min_rating']} {params['min_pages']} {params['target_page']}"
-    
-        await self.search_gallery(event)
+    # @filter.command("eh翻页")
+    # async def jump_to_page(self, event: AstrMessageEvent):
+    #     pass
         
 
     async def download_gallery(self, event: AstrMessageEvent, gid: str = None, token: str = None):
@@ -927,33 +893,23 @@ class EHentaiBot(Star):
 
     @filter.command("eh")
     async def eh_helper(self, event: AstrMessageEvent):
-        help_text = """eh指令帮助：
-[1] 搜索画廊: 搜eh [关键词] [最低评分（2-5，默认2）] [最少页数（默认1）] [获取第几页的画廊列表（默认1）]
-[2] 快速翻页: eh翻页 [获取第几页的画廊列表]
-[3] 下载画廊: 看eh [画廊链接/搜索结果序号]
-[4] 获取归档链接: 归档eh [画廊链接/搜索结果序号]
-[5] 获取指令帮助: eh
-[6] 热重载config相关参数: 重载eh配置
+        help_text = """📖 EHentai 插件使用指南 (v4.0.9)
+━━━━━━━━━━━━━━━━━━━━━
+🔍 搜索与下载
+/es <关键词> [页码]
+• 搜索画廊，结果中回复数字可快速下载
+• 示例: /es loli
+• 示例: /es loli 2
 
-可用的搜索方式:
-[1] 搜eh [关键词]
-[2] 搜eh [关键词] [最低评分]
-[3] 搜eh [关键词] [最低评分] [最少页数]
-[4] 搜eh [关键词] [最低评分] [最少页数] [获取第几页的画廊列表]
-[5] eh翻页 [获取第几页的画廊列表]
+🚀 快速下载
+• 在搜索结果出现后 30秒内，直接回复序号 (1-9) 即可开始下载
 
-可用的下载方式：
-[1] 看eh [画廊链接]
-[2] 看eh [搜索结果序号]
+🔗 链接解析
+• 发送 E-Hentai/ExHentai 画廊链接，自动解析并提供下载选项
 
-可用的归档方式：
-[1] 归档eh [画廊链接]
-[2] 归档eh [搜索结果序号]
-
-注意：
-[1] 搜索多关键词时请用以下符号连接`,` `，` `+`，关键词之间不要添加任何空格
-[2] 使用"eh翻页 [获取第几页的画廊列表]"、"看eh [搜索结果序号]"和"归档eh [搜索结果序号]"前确保你最近至少使用过一次"搜eh"命令（每个用户的缓存文件是独立的）
-[3] 归档链接仅能访问一次，请尽快下载"""
+ℹ️ 其他
+• /eh <ID> <Token> - 高级下载 (一般由按钮或链接触发)
+━━━━━━━━━━━━━━━━━━━━━"""
         await event.send(event.plain_result(help_text))
 
     @filter.command("重载eh配置")
@@ -964,8 +920,8 @@ class EHentaiBot(Star):
         self.downloader = Downloader(self.config, self.uploader, self.parser)
         await event.send(event.plain_result("已重载配置参数"))
     
-    @filter.regex(r"^(?:\[([^\]]+)\]|\(([^\)]+)\))\s*(.*)$")
-    async def search_by_formatted_message(self, event: AstrMessageEvent):
+    # @filter.regex(r"^(?:\[([^\]]+)\]|\(([^\)]+)\))\s*(.*)$")
+    # async def search_by_formatted_message(self, event: AstrMessageEvent):
         """
         监听特定格式的消息，自动提取作者名和作品名，并拼接为搜索关键词进行搜索。
         """
