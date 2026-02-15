@@ -207,6 +207,11 @@ class Downloader:
                         "image_number": len(all_subpage_urls) + 1
                     })
 
+        if not all_subpage_urls:
+            raise ValueError("未在画廊页中解析到任何图片链接。请检查：\n1. 链接是否正确\n2. 如果是里站(ExHentai)，Cookie(igneous等)是否已正确配置并有效\n3. 是否遇到了 Sad Panda 限制")
+        
+        await event.send(event.plain_result(f"解析完成，共 {len(all_subpage_urls)} 个页面，开始下载..."))
+        
         queue = asyncio.Queue()
         for item in all_subpage_urls:
             await queue.put(item)
@@ -284,7 +289,14 @@ class Downloader:
         max_pages = output_config.get('max_pages_per_pdf', 200)
         image_files = natsorted(glob.glob(str(Path(self.image_folder) / "*.jpg")))
         if not image_files:
-            error_msg = f"合并失败：在目录 {self.image_folder} 中未找到下载好的图片 (.jpg)。请检查磁盘权限或配置。"
+            # 诊断目录内容
+            try:
+                actual_files = os.listdir(self.image_folder)
+                files_preview = ", ".join(actual_files[:10]) + ("..." if len(actual_files) > 10 else "")
+            except Exception:
+                files_preview = "无法读取目录"
+            
+            error_msg = f"合并失败：在目录 {self.image_folder} 中未找到 .jpg 文件。当前目录内容：[{files_preview}]。请检查磁盘权限或配置。"
             logger.error(error_msg)
             raise ValueError(error_msg)
         

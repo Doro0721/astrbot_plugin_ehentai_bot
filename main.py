@@ -26,7 +26,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-@register("astrbot_plugin_ehentai_bot", "Doro0721", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "4.0.7")
+@register("astrbot_plugin_ehentai_bot", "Doro0721", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "4.0.8")
 class EHentaiBot(Star):
     @staticmethod
     def _parse_proxy_config(proxy_str: str) -> Dict[str, Any]:
@@ -685,7 +685,7 @@ class EHentaiBot(Star):
             if not url:
                 return
 
-            async with await self._get_session() as session:
+            async with await self.downloader._get_session() as session:
                 is_pdf_exist = await self.downloader.process_pagination(event, session, url)
 
                 if not is_pdf_exist:
