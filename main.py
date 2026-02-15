@@ -65,6 +65,7 @@ class EHentaiBot(Star):
             "platform_http_host": ["platform", "http_host"],
             "platform_http_port": ["platform", "http_port"],
             "platform_api_token": ["platform", "api_token"],
+            "platform_use_base64_upload": ["platform", "use_base64_upload"],
             "request_headers_user_agent": ["request", "headers", "User-Agent"],
             "request_website": ["request", "website"],
             "request_cookies_ipb_member_id": ["request", "cookies", "ipb_member_id"],
@@ -97,6 +98,7 @@ class EHentaiBot(Star):
         ]
         
         bool_fields = [
+            "platform_use_base64_upload",
             "features_enable_formatted_message_search",
             "features_enable_cover_image_download"
         ]
@@ -229,7 +231,7 @@ class EHentaiBot(Star):
     async def _resolve_url_from_input(self, event: AstrMessageEvent, user_input: str) -> Optional[str]:
         """从用户输入（URL或序号）解析画廊URL"""
         output_config = self.config.get('output', {})
-        search_cache_folder = Path(output_config.get('search_cache_folder', '/app/sharedFolder/ehentai/searchCache'))
+        search_cache_folder = Path(output_config.get('search_cache_folder', 'data/ehentai/searchCache'))
         pattern = re.compile(r'^https://(e-hentai|exhentai)\.org/g/\d{7}/[a-f0-9]{10}/?$')
 
         if pattern.match(user_input):
@@ -522,7 +524,7 @@ class EHentaiBot(Star):
                 cache_data[str(idx)] = result['gallery_url']
 
             output_config = self.config.get('output', {})
-            search_cache_folder = Path(output_config.get('search_cache_folder', '/app/sharedFolder/ehentai/searchCache'))
+            search_cache_folder = Path(output_config.get('search_cache_folder', 'data/ehentai/searchCache'))
             search_cache_folder.mkdir(exist_ok=True, parents=True)
 
             cache_file = search_cache_folder / f"{event.get_sender_id()}.json"
@@ -631,7 +633,7 @@ class EHentaiBot(Star):
             return
     
         output_config = self.config.get('output', {})
-        search_cache_folder = Path(output_config.get('search_cache_folder', '/app/sharedFolder/ehentai/searchCache'))
+        search_cache_folder = Path(output_config.get('search_cache_folder', 'data/ehentai/searchCache'))
         cache_file = search_cache_folder / f"{event.get_sender_id()}.json"
     
         if not cache_file.exists():
@@ -659,11 +661,11 @@ class EHentaiBot(Star):
     @filter.command("看eh")
     async def download_gallery(self, event: AstrMessageEvent):
         output_config = self.config.get('output', {})
-        image_folder = Path(output_config.get('image_folder', '/app/sharedFolder/ehentai/tempImages'))
+        image_folder = Path(output_config.get('image_folder', 'data/ehentai/tempImages'))
         image_folder.mkdir(exist_ok=True, parents=True)
-        pdf_folder = Path(output_config.get('pdf_folder', '/app/sharedFolder/ehentai/pdf'))
+        pdf_folder = Path(output_config.get('pdf_folder', 'data/ehentai/pdf'))
         pdf_folder.mkdir(exist_ok=True, parents=True)
-        search_cache_folder = Path(output_config.get('search_cache_folder', '/app/sharedFolder/ehentai/searchCache'))
+        search_cache_folder = Path(output_config.get('search_cache_folder', 'data/ehentai/searchCache'))
         search_cache_folder.mkdir(exist_ok=True, parents=True)
 
         for f in glob.glob(str(image_folder / "*.*")):
@@ -686,7 +688,7 @@ class EHentaiBot(Star):
                     title = self.downloader.gallery_title
                     safe_title = await self.downloader.merge_images_to_pdf(event, title)
                     output_config = self.config.get('output', {})
-                    pdf_folder = output_config.get('pdf_folder', '/app/sharedFolder/ehentai/pdf')
+                    pdf_folder = output_config.get('pdf_folder', 'data/ehentai/pdf')
                     await self.uploader.upload_file(event, pdf_folder, safe_title)
 
         except Exception as e:
@@ -696,7 +698,7 @@ class EHentaiBot(Star):
     @filter.command("归档eh")
     async def archive_gallery(self, event: AstrMessageEvent):
         output_config = self.config.get('output', {})
-        search_cache_folder = Path(output_config.get('search_cache_folder', '/app/sharedFolder/ehentai/searchCache'))
+        search_cache_folder = Path(output_config.get('search_cache_folder', 'data/ehentai/searchCache'))
         search_cache_folder.mkdir(exist_ok=True, parents=True)
 
         try:

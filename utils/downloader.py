@@ -32,8 +32,8 @@ class Downloader:
         self.semaphore = asyncio.Semaphore(request_config.get('concurrency', 10))
         self.gallery_title = "output"
         output_config = config.get('output', {})
-        Path(output_config.get('image_folder', '/app/sharedFolder/ehentai/tempImages')).mkdir(parents=True, exist_ok=True)
-        Path(output_config.get('pdf_folder', '/app/sharedFolder/ehentai/pdf')).mkdir(parents=True, exist_ok=True)
+        Path(output_config.get('image_folder', 'data/ehentai/tempImages')).mkdir(parents=True, exist_ok=True)
+        Path(output_config.get('pdf_folder', 'data/ehentai/pdf')).mkdir(parents=True, exist_ok=True)
 
     def _prepare_request_params(self) -> Dict[str, Any]:
         """准备通用请求参数"""
@@ -96,7 +96,7 @@ class Downloader:
         request_config = self.config.get('request', {})
         max_retries = request_config.get('max_retries', 3)
         output_config = self.config.get('output', {})
-        image_folder = output_config.get('image_folder', '/app/sharedFolder/ehentai/tempImages')
+        image_folder = output_config.get('image_folder', 'data/ehentai/tempImages')
         jpeg_quality = output_config.get('jpeg_quality', 85)
         for attempt in range(max_retries):
             try:
@@ -159,7 +159,7 @@ class Downloader:
         max_filename_length = output_config.get('max_filename_length', 200)
         self.gallery_title, last_page_number = self.parser.extract_gallery_info(main_html, max_filename_length)
 
-        pdf_folder = output_config.get('pdf_folder', '/app/sharedFolder/ehentai/pdf')
+        pdf_folder = output_config.get('pdf_folder', 'data/ehentai/pdf')
         all_files = os.listdir(pdf_folder)
         pattern = re.compile(rf"^{re.escape(self.gallery_title)}(?: part \d+)?\.pdf$")
         matching_files = [
@@ -261,8 +261,8 @@ class Downloader:
     async def merge_images_to_pdf(self, event: AstrMessageEvent, gallery_title: str) -> str:
         await event.send(event.plain_result("正在将图片合并为pdf文件，请稍候..."))
         output_config = self.config.get('output', {})
-        image_folder = output_config.get('image_folder', '/app/sharedFolder/ehentai/tempImages')
-        pdf_folder = output_config.get('pdf_folder', '/app/sharedFolder/ehentai/pdf')
+        image_folder = output_config.get('image_folder', 'data/ehentai/tempImages')
+        pdf_folder = output_config.get('pdf_folder', 'data/ehentai/pdf')
         max_filename_length = output_config.get('max_filename_length', 200)
         max_pages = output_config.get('max_pages_per_pdf', 200)
         image_files = natsorted(glob.glob(str(Path(image_folder) / "*.jpg")))

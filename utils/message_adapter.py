@@ -4,6 +4,7 @@ import re
 import aiohttp
 import asyncio
 import logging
+import base64
 from typing import Dict, List, Any, Optional, Union
 from pathlib import Path
 from natsort import natsorted
@@ -20,6 +21,7 @@ class MessageAdapter:
         self.http_host = platform_config.get("http_host", "127.0.0.1")
         self.http_port = platform_config.get("http_port", 2333)
         self.api_token = platform_config.get("api_token", "")
+        self.use_base64 = platform_config.get("use_base64_upload", False)
 
     def get_headers(self) -> Dict[str, str]:
         headers = {'Content-Type': 'application/json'}
@@ -117,6 +119,9 @@ class MessageAdapter:
         ]
 
         files = natsorted(matching_files)
+        # 转换为绝对路径，防止发送相对路径给机器人端
+        files = [os.path.abspath(f) for f in files]
+        
         if not files:
             raise FileNotFoundError("未找到符合命名的文件")
 
@@ -141,8 +146,19 @@ class MessageAdapter:
                 while not queue.empty():
                     file = await queue.get()
                     payload = base_payload.copy()
+                    
+                    file_val = file
+                    if self.use_base64:
+                        try:
+                            with open(file, "rb") as f:
+                                b64_data = base64.b64encode(f.read()).decode("utf-8")
+                                file_val = f"base64://{b64_data}"
+                        except Exception as e:
+                            logger.error(f"读取文件并进行 Base64 编码失败: {file}, 错误: {e}")
+                            # 回退到路径上传，或者你可以选择直接跳过
+                    
                     payload.update({
-                        "file": file,
+                        "file": file_val,
                         "name": os.path.basename(file)
                     })
                     result = await self._upload_single_file(session, url, self.get_headers(), payload)
@@ -156,19 +172,44 @@ class MessageAdapter:
         workers = [worker() for _ in range(1)]
         await asyncio.gather(*workers)
 
-        return self._process_results(results)
+        process_result = self._process_results(results)
+        
+        # 向用户反馈结果
+        if process_result["failed_count"] == 0:
+            if process_result["total"] > 1:
+                await event.send(event.plain_result(f"✅ {name} (共 {process_result['total']} 部分) 已全部发送成功"))
+            else:
+                await event.send(event.plain_result(f"✅ {name} 已发送成功"))
+        else:
+            error_msg = f"❌ {name} 发送失败 ({process_result['success_count']}/{process_result['total']} 成功)"
+            if process_result["details"]["errors"]:
+                # 取第一个错误进行展示
+                first_error = process_result["details"]["errors"][0]
+                error_msg += f"\n原因: {first_error}"
+            
+            await event.send(event.plain_result(error_msg))
+            logger.error(f"文件上传失败: {process_result}")
+
+        return process_result
 
     async def _upload_single_file(self, session: aiohttp.ClientSession, url: str,
                                   headers: Dict[str, str], payload: Dict[str, Any]) -> Dict[str, Any]:
         try:
-            async with session.post(url, json=payload, headers=headers) as response:
-                response.raise_for_status()
+            # 增加超时控制
+            timeout = aiohttp.ClientTimeout(total=120) # 2分钟上传超时
+            async with session.post(url, json=payload, headers=headers, timeout=timeout) as response:
+                if response.status != 200:
+                    error_text = await response.text()
+                    return {"success": False, "error": f"HTTP {response.status}: {error_text}"}
+                
                 res = await response.json()
 
-                if res["status"] != "ok":
-                    return {"success": False, "error": res.get("message")}
+                if res.get("status") != "ok":
+                    return {"success": False, "error": res.get("message") or res.get("msg") or "未知错误"}
 
                 return {"success": True, "data": res.get("data")}
+        except asyncio.TimeoutError:
+            return {"success": False, "error": "上传超时，请检查网络连接或 OneBot 适配器状态"}
         except Exception as e:
             return {"success": False, "error": str(e)}
 

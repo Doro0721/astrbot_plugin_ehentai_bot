@@ -93,9 +93,9 @@ https://github.com/drdon1234/astrbot_plugin_ehentai_bot
   - `request_timeout`: 请求超时时间（秒），默认值：5
 
 - **输出设置**
-  - `output_image_folder`: 缓存画廊图片的路径，默认值：/app/sharedFolder/ehentai/tempImages
-  - `output_pdf_folder`: 存放PDF文件的路径，默认值：/app/sharedFolder/ehentai/pdf
-  - `output_search_cache_folder`: 缓存搜索结果的路径，默认值：/app/sharedFolder/ehentai/searchCache
+  - `output_image_folder`: 缓存画廊图片的路径，默认值：data/ehentai/tempImages
+  - `output_pdf_folder`: 存放PDF文件的路径，默认值：data/ehentai/pdf
+  - `output_search_cache_folder`: 缓存搜索结果的路径，默认值：data/ehentai/searchCache
   - `output_jpeg_quality`: 图片质量，100为不压缩，85左右可以达到文件大小和图片质量的最佳平衡，默认值：85
   - `output_max_pages_per_pdf`: 单个PDF文件最大页数，超过此页数将分割为多个PDF文件，默认值：200
   - `output_max_filename_length`: 文件名最大长度限制，超出部分将被截取，默认值：200

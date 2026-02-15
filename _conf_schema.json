@@ -23,6 +23,12 @@
         "hint": "没有则不填 默认值：无",
         "default": ""
     },
+    "platform_use_base64_upload": {
+        "description": "使用 Base64 上传文件",
+        "type": "bool",
+        "hint": "当消息平台（如 NapCat）无权访问插件目录或二者不在同一环境下时开启。注意：大型文件开启此项会消耗较多内存。默认值：false",
+        "default": false
+    },
     "request_headers_user_agent": {
         "description": "User-Agent 请求头",
         "type": "string",
@@ -86,20 +92,20 @@
     "output_image_folder": {
         "description": "缓存画廊图片的路径",
         "type": "string",
-        "hint": "临时存储下载的图片的文件夹路径 默认值：/app/sharedFolder/ehentai/tempImages",
-        "default": ""
+        "hint": "临时存储下载的图片的文件夹路径。Linux/Docker 默认值：/app/sharedFolder/ehentai/tempImages，Windows 用户请修改为本地有效路径（如 data/ehentai/tempImages）",
+        "default": "data/ehentai/tempImages"
     },
     "output_pdf_folder": {
         "description": "存放PDF文件的路径",
         "type": "string",
-        "hint": "生成的PDF文件的保存路径 默认值：/app/sharedFolder/ehentai/pdf",
-        "default": ""
+        "hint": "生成的PDF文件的保存路径。Linux/Docker 默认值：/app/sharedFolder/ehentai/pdf，Windows 用户请修改为本地有效路径（如 data/ehentai/pdf）",
+        "default": "data/ehentai/pdf"
     },
     "output_search_cache_folder": {
         "description": "缓存搜索结果的路径",
         "type": "string",
-        "hint": "缓存每个用户搜索结果的路径 默认值：/app/sharedFolder/ehentai/searchCache",
-        "default": ""
+        "hint": "缓存每个用户搜索结果的路径。Linux/Docker 默认值：/app/sharedFolder/ehentai/searchCache，Windows 用户请修改为本地有效路径（如 data/ehentai/searchCache）",
+        "default": "data/ehentai/searchCache"
     },
     "output_jpeg_quality": {
         "description": "图片质量",
