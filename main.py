@@ -883,24 +883,16 @@ class EHentaiBot(Star):
                         tag_names.append(f"#{raw_tag}")
                     
                     if tag_names:
-                        tags_text += f" {cat_cn}: {' '.join(tag_names)}\n"
+                        tags_text += f"{cat_cn}: {' '.join(tag_names)}\n"
 
             # 构建消息
             chain = []
             
-            # 第一段：标题
-            # 用户期望: 图片\n语言: #汉语...
-            # 这里的 "图片" 可能是指封面图? 或者只是一个标题头? 
-            # 用户示例第一行写的是 "图片"，然后下面是 tag。
-            # 但用户也想要 "只要是链接的歌就自动得发送送详情然后下载"
-            # 让我们把标题放第一行。
-            
-            header = f"{display_title}\n"
-            chain.append(Plain(header))
-
-            # Tag 详情
+            # 标题 + 标签合为一段，避免多个 Plain 拼接导致排版错位
+            info_text = f"{display_title}\n"
             if tags_text:
-                chain.append(Plain(tags_text))
+                info_text += tags_text
+            chain.append(Plain(info_text))
             
             # 图片 (打码) - 使用专用的封面下载方法
             logger.info(f"封面 URL: {cover_url}")
