@@ -28,7 +28,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-@register("astrbot_plugin_ehentai_bot", "Doro0721", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "4.0.9")
+@register("astrbot_plugin_ehentai_bot", "Doro0721", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "4.1.0")
 class EHentaiBot(Star):
     @staticmethod
     def _parse_proxy_config(proxy_str: str) -> Dict[str, Any]:
@@ -511,77 +511,55 @@ class EHentaiBot(Star):
             query = " ".join(words[:-1])
         else:
             query = query_str
+            
+        await self._search_and_reply(event, query, target_page)
 
+    async def _search_and_reply(self, event: AstrMessageEvent, query: str, page: int):
+        """执行搜索并回复结果（供 /es 和翻页使用）"""
         # 发送提示
-        yield event.plain_result(f"🔍 正在搜索: {query} (第{target_page}页)...")
+        yield event.plain_result(f"🔍 正在搜索: {query} (第{page}页)...")
 
         try:
-            # 调用下载器的爬虫功能
-            # 注意：crawl_ehentai 的参数定义是 tags, min_rating, min_pages, target_page
-            # 这里我们简化逻辑，只传 tags 和 page，其他用默认值
             search_results = await self.downloader.crawl_ehentai(
                 query,
                 0, # min_rating
                 0, # min_pages
-                target_page - 1 # range 是从 0 开始的吗？crawl_ehentai 里是直接传给 'range' 参数。
-                # E-Hentai 的 range 参数通常是页码索引，0是第一页? 不, ?page=1. page参数通常是 range=page. 
-                # 让我们检查 crawl_ehentai 实现: 'range': target_page. 
-                # E-Hentai 搜索的分页参数通常是 'page' 或 'range'？
-                # requests usually use `page` parameter for page number? 
-                # ehentai url: ?f_search=xxx&page=1. 
-                # downloader code used: 'range': target_page. 
-                # 假设 downloader 实现是正确的，或者我们需要适配它。
-                # 之前的 search_gallery 是直接传参。
+                page - 1 # target_page
             )
 
             if not search_results:
                 yield event.plain_result("未找到符合条件的结果")
                 return
 
-            # 缓存搜索结果（用于快速下载）
+            # 缓存搜索结果（用于快速下载和翻页）
             user_id = event.get_sender_id()
-            cache_data = {"results": search_results, "time": asyncio.get_event_loop().time()}
+            cache_data = {
+                "results": search_results,
+                "time": asyncio.get_event_loop().time(),
+                "query": query,
+                "page": page
+            }
             
-            # 使用内存缓存而非文件，为了简单和快速交互（参考 nhentai）
-            # 但 ehentai 插件之前是设计为持久化缓存的？
-            # 为了 "回复数字快速下载"，我们需要内存缓存更方便。
             if not hasattr(self, '_search_cache'):
                 self._search_cache = {}
             self._search_cache[user_id] = cache_data
 
             # 构建消息链
             chain = []
-            header = f"🔍 搜索结果 (第 {target_page} 页)\n━━━━━━━━━━━━\n"
+            header = f"🔍 搜索结果 (第 {page} 页)\n━━━━━━━━━━━━\n"
             chain.append(Plain(header))
 
             # 异步下载所有封面
-            # 限制并发
             semaphore = asyncio.Semaphore(5)
             
-            async def get_cover_content(url):
-                async with semaphore:
-                    try:
-                        async with await self.downloader._get_session() as session:
-                           return await self.downloader.fetch_bytes_with_retry(session, url)
-                    except:
-                        return None
-            
-            # 收集所有封面下载任务
-            # 注意：search_results 里的 cover_url 可能是相对路径或需要处理
-            # HTMLParser 解析出来的 cover_url 应该是完整的，或者 downloader 内部处理过？
-            # 之前的代码直接用 downloader._download_covers_with_retry，它返回 PIL Image 对象列表
-            
-            # 我们复用 _download_covers_with_retry 的逻辑，但稍作修改以获得 byte 数据或 base64
-            # 或者直接使用 PIL Image 对象转 base64
+            # 复用 _download_covers_with_retry
             covers = await self._download_covers_with_retry(search_results)
-            # covers 是 PIL Image 列表，顺序对应 search_results
 
             for idx, result in enumerate(search_results, 1):
                 # 文本部分
                 title = result['title']
-                gid = result.get('gid') # parser 似乎没有返回 gid？只返回了 gallery_url
-                # 从 gallery_url 提取 gid 和 token
-                # url 格式: https://e-hentai.org/g/2805973/59b10901e6/
+                
+                # 尝试从 gallery_url 提取 gid/token
                 g_url = result['gallery_url']
                 g_parts = g_url.strip('/').split('/')
                 if len(g_parts) >= 2:
@@ -589,6 +567,7 @@ class EHentaiBot(Star):
                     current_token = g_parts[-1]
                 else:
                     current_gid = "?"
+                    current_token = "?"
                 
                 # 更新 result 以包含 gid (用于快速下载)
                 result['_gid'] = current_gid
@@ -603,7 +582,6 @@ class EHentaiBot(Star):
 
                 # 图片部分
                 if idx <= len(covers) and covers[idx-1]:
-                    # PIL Image -> Base64
                     img = covers[idx-1]
                     buffered = io.BytesIO()
                     img.save(buffered, format="JPEG")
@@ -612,7 +590,7 @@ class EHentaiBot(Star):
                 
                 chain.append(Plain("\n━━━━━━━━━━━━\n" if idx < len(search_results) else "\n"))
 
-            footer = "\n💡 30秒内回复数字(1-9)快速下载\n使用 /es <关键词> <页码> 翻页"
+            footer = "\n💡 30秒内回复:\n• 数字(1-9): 下载对应画廊\n• '下': 下一页 | '上': 上一页"
             chain.append(Plain(footer))
             
             yield event.chain_result(chain)
@@ -621,29 +599,51 @@ class EHentaiBot(Star):
             logger.exception("搜索处理异常")
             yield event.plain_result(f"搜索出错: {str(e)}")
 
-    @filter.regex(r"^\d+$")
-    async def handle_quick_download(self, event: AstrMessageEvent):
-        """处理纯数字回复，用于快速下载"""
+    @filter.regex(r"^(?:\d+|上|下)$")
+    async def handle_quick_interaction(self, event: AstrMessageEvent):
+        """处理快速交互：数字下载、翻页"""
         text = event.message_str.strip()
-        if not text.isdigit():
-            return
-            
-        idx = int(text)
         user_id = event.get_sender_id()
         
         # 检查缓存
         if not hasattr(self, '_search_cache') or user_id not in self._search_cache:
-            return # 无缓存，忽略（可能是其他插件的数字）
+            return 
             
         cache = self._search_cache[user_id]
         # 检查过期 (30秒)
         if asyncio.get_event_loop().time() - cache["time"] > 30:
             del self._search_cache[user_id]
-            return # 过期
+            return 
             
+        # 处理翻页
+        if text == "上":
+            current_page = cache.get("page", 1)
+            new_page = current_page - 1
+            if new_page < 1:
+                yield event.plain_result("🚫 已经是第一页了")
+                return
+            
+            # 更新缓存时间防止过期，虽然 _search_and_reply 会覆盖
+            async for result in self._search_and_reply(event, cache["query"], new_page):
+                yield result
+            return
+
+        elif text == "下":
+            current_page = cache.get("page", 1)
+            new_page = current_page + 1
+            
+            async for result in self._search_and_reply(event, cache["query"], new_page):
+                yield result
+            return
+
+        # 处理下载 (纯数字)
+        if not text.isdigit():
+            return
+
+        idx = int(text)
         results = cache["results"]
         if idx < 1 or idx > len(results):
-            return # 越界
+            return 
             
         target = results[idx-1]
         gid = target.get('_gid')
