@@ -797,123 +797,108 @@ class EHentaiBot(Star):
             pass
         
         try:
-            # 使用 Downloader 获取 HTML 并解析
-            async with await self.downloader._get_session() as session:
+            # 使用同一个 session 完成 HTML 获取和封面下载
+            async with await self._get_session() as session:
                 html = await self.downloader.fetch_with_retry(session, url)
                 
-            if not html:
-                await event.send(event.plain_result("无法获取画廊详情"))
-                return
+                if not html:
+                    await event.send(event.plain_result("无法获取画廊详情"))
+                    return
+                    
+                # 使用 extract_gallery_info 获取标题
+                title, _ = self.parser.extract_gallery_info(html)
                 
-            # 解析详情 (复用 HTMLParser 的解析逻辑，或者我们需要一个新的 parse_gallery_detail)
-            # parse_gallery_from_html 是解析列表页的。
-            # 解析详情页需要 extract_gallery_info 以及更多元数据。
-            # 这里我们简单提取 Title 和 Tags
-            
-            # 使用 extract_gallery_info 获取标题
-            title, _ = self.parser.extract_gallery_info(html)
-            
-            # 我们需要更详细的信息（标签、封面等）来构建卡片
-            # 由于现有的 HTMLParser 主要针对下载优化，可能需要扩展 parser 或使用 regex 快速提取
-            # 为了仿 nhentai，我们需要封面。
-            
-            # 封面通常在 #gleft 里的 #gd1 div -> img src
-            soup = BeautifulSoup(html, "html.parser") # 修正调用
-            
-            # 封面 - 兼容 E-Hentai（img）和 ExHentai（div 背景样式）
-            cover_url = None
-            cover_img = soup.select_one("#gd1 img")
-            if cover_img:
-                cover_url = cover_img.get("src")
-            
-            if not cover_url:
-                # ExHentai 可能用 div 背景样式
-                cover_div = soup.select_one("#gd1 div")
-                if cover_div:
-                    style = cover_div.get("style", "")
-                    import re as re2
-                    m = re2.search(r'url\((.+?)\)', style)
-                    if m:
-                        cover_url = m.group(1).strip("'\"")
-            
-            # 如果还是没有封面，尝试 meta og:image
-            if not cover_url:
-                og_img = soup.select_one('meta[property="og:image"]')
-                if og_img:
-                    cover_url = og_img.get("content")
-            
-            # 标题 (HTMLParser 已经提取了 title，但可能是文件名安全的)
-            # 获取原标题
-            gn = soup.select_one("#gn")
-            gj = soup.select_one("#gj")
-            display_title = gn.text if gn else (gj.text if gj else title)
-            
-            # 标签映射表
-            tag_mapping = {
-                "language": "语言",
-                "parody": "原作",
-                "character": "角色",
-                "group": "社团",
-                "artist": "艺术家",
-                "female": "女性",
-                "male": "男性",
-                "mixed": "混合",
-                "other": "其他",
-                "misc": "其他"
-            }
-            
-            # 标签解析
-            tag_rows = soup.select("#taglist tr")
-            tags_text = ""
-            for row in tag_rows:
-                tds = row.find_all("td")
-                if len(tds) == 2:
-                    cat_raw = tds[0].text.strip(":")
-                    cat_cn = tag_mapping.get(cat_raw, cat_raw)
-                    
-                    tag_links = tds[1].find_all("a")
-                    # 提取标签名并处理为 #tag 格式
-                    tag_names = []
-                    for t in tag_links:
-                        raw_tag = t.text.strip().split(" | ")[0]
-                        # 处理中间的空格，例如 "big breasts" -> "#bigbreasts" 或者保留空格? 
-                        # 用户示例: #橘光明 #橘希望. 
-                        # E-h tag 通常是空格分隔单词. 
-                        # 让我们保持原样但加#
-                        tag_names.append(f"#{raw_tag}")
-                    
-                    if tag_names:
-                        tags_text += f"{cat_cn}: {' '.join(tag_names)}\n"
+                # 封面通常在 #gd1 div -> img src
+                soup = BeautifulSoup(html, "html.parser")
+                
+                # 封面 - 兼容 E-Hentai（img）和 ExHentai（div 背景样式）
+                cover_url = None
+                cover_img = soup.select_one("#gd1 img")
+                if cover_img:
+                    cover_url = cover_img.get("src")
+                
+                if not cover_url:
+                    # ExHentai 可能用 div 背景样式
+                    cover_div = soup.select_one("#gd1 div")
+                    if cover_div:
+                        style = cover_div.get("style", "")
+                        m = re.search(r'url\((.+?)\)', style)
+                        if m:
+                            cover_url = m.group(1).strip("'\"")
+                
+                # 如果还是没有封面，尝试 meta og:image
+                if not cover_url:
+                    og_img = soup.select_one('meta[property="og:image"]')
+                    if og_img:
+                        cover_url = og_img.get("content")
+                
+                # 标题
+                gn = soup.select_one("#gn")
+                gj = soup.select_one("#gj")
+                display_title = gn.text if gn else (gj.text if gj else title)
+                
+                # 标签映射表
+                tag_mapping = {
+                    "language": "语言",
+                    "parody": "原作",
+                    "character": "角色",
+                    "group": "社团",
+                    "artist": "艺术家",
+                    "female": "女性",
+                    "male": "男性",
+                    "mixed": "混合",
+                    "other": "其他",
+                    "misc": "其他"
+                }
+                
+                # 标签解析
+                tag_rows = soup.select("#taglist tr")
+                tags_text = ""
+                for row in tag_rows:
+                    tds = row.find_all("td")
+                    if len(tds) == 2:
+                        cat_raw = tds[0].text.strip(":")
+                        cat_cn = tag_mapping.get(cat_raw, cat_raw)
+                        
+                        tag_links = tds[1].find_all("a")
+                        tag_names = []
+                        for t in tag_links:
+                            raw_tag = t.text.strip().split(" | ")[0]
+                            tag_names.append(f"#{raw_tag}")
+                        
+                        if tag_names:
+                            tags_text += f"{cat_cn}: {' '.join(tag_names)}\n"
 
-            # 构建消息
-            chain = []
-            
-            # 标题 + 标签合为一段，避免多个 Plain 拼接导致排版错位
-            info_text = f"{display_title}\n"
-            if tags_text:
-                info_text += tags_text
-            chain.append(Plain(info_text))
-            
-            # 图片 (打码) - 使用专用的封面下载方法
-            logger.info(f"封面 URL: {cover_url}")
-            if cover_url:
-                try:
-                    semaphore = asyncio.Semaphore(1)
-                    async with await self._get_session() as session:
+                # 构建消息
+                chain = []
+                
+                # 标题 + 标签合为一段
+                info_text = f"{display_title}\n"
+                if tags_text:
+                    info_text += tags_text
+                chain.append(Plain(info_text))
+                
+                # 封面图 - 在同一个 session 中下载
+                logger.info(f"封面 URL: {cover_url}")
+                if cover_url:
+                    try:
+                        semaphore = asyncio.Semaphore(1)
                         cover_img_obj = await self.download_thumbnail(cover_url, session, semaphore)
-                    if cover_img_obj:
-                        self.add_random_blocks(cover_img_obj)
-                        buffered = io.BytesIO()
-                        cover_img_obj.save(buffered, format="JPEG")
-                        img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
-                        chain.append(Image.fromBase64(img_b64))
-                        logger.info("封面图下载成功")
-                    else:
-                        logger.warning("封面图下载返回 None")
-                except Exception as e:
-                    logger.error(f"处理封面图失败: {e}")
-            else:
-                logger.warning("未找到封面 URL")
+                        if cover_img_obj:
+                            self.add_random_blocks(cover_img_obj)
+                            buffered = io.BytesIO()
+                            cover_img_obj.save(buffered, format="JPEG")
+                            img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                            chain.append(Image.fromBase64(img_b64))
+                            logger.info("封面图下载成功")
+                        else:
+                            logger.warning("封面图下载返回 None")
+                    except Exception as e:
+                        logger.error(f"处理封面图失败: {e}")
+                        import traceback
+                        logger.error(traceback.format_exc())
+                else:
+                    logger.warning("未找到封面 URL")
             
             # 发送详情
             await event.send(event.chain_result(chain))
