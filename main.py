@@ -26,7 +26,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-@register("astrbot_plugin_ehentai_bot", "Doro0721", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "4.0.4")
+@register("astrbot_plugin_ehentai_bot", "Doro0721", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "4.0.5")
 class EHentaiBot(Star):
     @staticmethod
     def _parse_proxy_config(proxy_str: str) -> Dict[str, Any]:
@@ -43,6 +43,10 @@ class EHentaiBot(Star):
         if parsed.username and parsed.password:
             auth = aiohttp.BasicAuth(parsed.username, parsed.password)
         
+        if not parsed.hostname:
+            logger.warning(f"代理配置 '{proxy_str}' 解析失败：未找到主机名。已忽略代理设置。")
+            return {}
+            
         proxy_url = f"{parsed.scheme}://{parsed.hostname}"
         if parsed.port:
             proxy_url += f":{parsed.port}"
@@ -692,8 +696,10 @@ class EHentaiBot(Star):
                     await self.uploader.upload_file(event, pdf_folder, safe_title)
 
         except Exception as e:
+            import traceback
             logger.exception("下载失败")
-            await event.send(event.plain_result(f"下载失败：{str(e)}"))
+            stack_info = traceback.format_exc()
+            await event.send(event.plain_result(f"下载失败：{str(e)}\n{stack_info}"))
 
     @filter.command("归档eh")
     async def archive_gallery(self, event: AstrMessageEvent):
