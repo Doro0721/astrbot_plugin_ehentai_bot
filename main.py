@@ -19,6 +19,7 @@ from typing import List, Optional, Dict, Any, Union
 from urllib.parse import urlparse
 from PIL import Image as PILImage, ImageDraw, ImageFont
 import re # 确保 re 被导入
+from bs4 import BeautifulSoup # 导入 BeautifulSoup
 try:
     from aiohttp_socks import ProxyConnector
     HAS_SOCKS = True
@@ -28,7 +29,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-@register("astrbot_plugin_ehentai_bot", "Doro0721", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "4.1.0")
+@register("astrbot_plugin_ehentai_bot", "Doro0721", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "4.1.1")
 class EHentaiBot(Star):
     @staticmethod
     def _parse_proxy_config(proxy_str: str) -> Dict[str, Any]:
@@ -800,7 +801,7 @@ class EHentaiBot(Star):
             # 为了仿 nhentai，我们需要封面。
             
             # 封面通常在 #gleft 里的 #gd1 div -> img src
-            soup = self.parser.BeautifulSoup(html, "html.parser") # 需要确保 BeautifulSoup 可用
+            soup = BeautifulSoup(html, "html.parser") # 修正调用
             
             # 封面
             cover_div = soup.select_one("#gd1 img")
@@ -851,7 +852,7 @@ class EHentaiBot(Star):
             
         except Exception as e:
             logger.error(f"链接解析失败: {e}")
-            # 不发送错误给用户以避免打扰正常聊天
+            await event.send(event.plain_result(f"解析失败: {e}"))
             
     # @filter.command("归档eh")
     async def archive_gallery(self, event: AstrMessageEvent):
