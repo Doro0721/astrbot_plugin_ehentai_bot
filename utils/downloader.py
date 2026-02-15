@@ -1,0 +1,388 @@
+from astrbot.api.event import AstrMessageEvent
+from typing import List, Dict, Any, Optional, Tuple
+import os
+import re
+import asyncio
+import aiohttp
+import aiofiles
+import random
+import glob
+import math
+import img2pdf
+import logging
+from pathlib import Path
+from natsort import natsorted
+from PIL import Image
+from urllib.parse import urlencode, urlparse, parse_qs, urlunparse, urljoin
+try:
+    from aiohttp_socks import ProxyConnector
+    HAS_SOCKS = True
+except ImportError:
+    HAS_SOCKS = False
+
+logger = logging.getLogger(__name__)
+
+
+class Downloader:
+    def __init__(self, config: Dict[str, Any], uploader: Any, parser: Any):
+        self.config = config
+        self.uploader = uploader
+        self.parser = parser
+        request_config = config.get('request', {})
+        self.semaphore = asyncio.Semaphore(request_config.get('concurrency', 10))
+        self.gallery_title = "output"
+        output_config = config.get('output', {})
+        Path(output_config.get('image_folder', '/app/sharedFolder/ehentai/tempImages')).mkdir(parents=True, exist_ok=True)
+        Path(output_config.get('pdf_folder', '/app/sharedFolder/ehentai/pdf')).mkdir(parents=True, exist_ok=True)
+
+    def _prepare_request_params(self) -> Dict[str, Any]:
+        """准备通用请求参数"""
+        request_config = self.config.get('request', {})
+        proxy_conf = request_config.get('proxy', {})
+        website = request_config.get('website', 'e-hentai')
+        cookies = request_config.get('cookies') if website == 'exhentai' else None
+        headers = request_config.get('headers', {})
+        return {
+            "headers": headers,
+            "proxy": proxy_conf.get('url'),
+            "proxy_auth": proxy_conf.get('auth'),
+            "timeout": aiohttp.ClientTimeout(total=request_config.get('timeout', 30)),
+            "ssl": False,
+            "cookies": cookies
+        }
+
+    async def _get_session(self) -> aiohttp.ClientSession:
+        """根据配置创建一个带有正确代理设置的 aiohttp.ClientSession"""
+        request_config = self.config.get('request', {})
+        proxy_str = request_config.get('proxy_str', '')
+        
+        connector = None
+        if proxy_str and proxy_str.startswith('socks5'):
+            if HAS_SOCKS:
+                connector = ProxyConnector.from_url(proxy_str, ssl=False)
+            else:
+                logger.error("检测到 SOCKS5 代理配置，但未安装 aiohttp-socks 库。请运行 'pip install aiohttp-socks'")
+        
+        if connector is None:
+            connector = aiohttp.TCPConnector(ssl=False)
+            
+        return aiohttp.ClientSession(connector=connector)
+
+    async def fetch_with_retry(self, session: aiohttp.ClientSession, url: str) -> Optional[str]:
+        params = self._prepare_request_params()
+        request_config = self.config.get('request', {})
+        max_retries = request_config.get('max_retries', 3)
+        for attempt in range(max_retries):
+            try:
+                async with self.semaphore:
+                    async with session.get(url, **params) as response:
+                        response.raise_for_status()
+                        return await response.text()
+            except asyncio.TimeoutError:
+                logger.warning(f"请求超时，尝试 {attempt + 1}/{max_retries}: {url}")
+            except aiohttp.ClientResponseError as e:
+                logger.warning(f"HTTP错误 {e.status}，尝试 {attempt + 1}/{max_retries}: {url}")
+            except Exception as e:
+                logger.warning(f"尝试 {attempt + 1}/{max_retries} 失败: {url} - {str(e)}")
+
+            await asyncio.sleep(2 ** attempt)
+
+        logger.error(f"请求失败，放弃: {url}")
+        return None
+
+    async def download_image_with_fixed_number(self, session: aiohttp.ClientSession, img_url: str,
+                                               image_number: int) -> bool:
+        params = self._prepare_request_params()
+        request_config = self.config.get('request', {})
+        max_retries = request_config.get('max_retries', 3)
+        output_config = self.config.get('output', {})
+        image_folder = output_config.get('image_folder', '/app/sharedFolder/ehentai/tempImages')
+        jpeg_quality = output_config.get('jpeg_quality', 85)
+        for attempt in range(max_retries):
+            try:
+                async with self.semaphore:
+                    async with session.get(img_url, **params) as response:
+                        response.raise_for_status()
+                        content = await response.read()
+
+                        if len(content) < 1024:
+                            raise ValueError("无效的图片内容")
+
+                        image_path = Path(image_folder) / f"{image_number}.jpg"
+
+                        async with aiofiles.open(image_path, "wb") as file:
+                            await file.write(content)
+
+                        with Image.open(image_path) as img:
+                            if img.format != 'JPEG':
+                                if img.mode in ('RGBA', 'LA'):
+                                    background = Image.new('RGB', img.size, (255, 255, 255))
+                                    background.paste(img, mask=img.split()[-1])
+                                    background.save(image_path, 'JPEG', quality=jpeg_quality)
+                                else:
+                                    img = img.convert('RGB')
+                                    img.save(image_path, 'JPEG', quality=jpeg_quality)
+
+                        return True
+            except Exception as e:
+                logger.warning(f"图片 {image_number} 下载尝试 {attempt + 1} 失败: {img_url} - {str(e)}")
+                await asyncio.sleep(2 ** attempt)
+
+        return False
+
+    async def _process_subpage_with_tracking(self, session: aiohttp.ClientSession, item: dict) -> dict:
+        try:
+            html_content = await self.fetch_with_retry(session, item["url"])
+            if not html_content:
+                return {"success": False, "error": "获取页面失败", "item": item}
+
+            img_url = self.parser.extract_image_url_from_page(html_content)
+            if not img_url:
+                return {"success": False, "error": "未找到图片URL", "item": item}
+
+            success = await self.download_image_with_fixed_number(session, img_url, item["image_number"])
+
+            if success:
+                return {"success": True, "item": item}
+            else:
+                return {"success": False, "error": "图片下载失败", "item": item}
+        except Exception as e:
+            return {"success": False, "error": str(e), "item": item}
+
+    async def process_pagination(self, event: AstrMessageEvent, session: aiohttp.ClientSession, gallery_url: str) -> bool:
+        main_html = await self.fetch_with_retry(session, gallery_url)
+        if not main_html:
+            raise ValueError("无法获取主页面内容")
+
+        output_config = self.config.get('output', {})
+        request_config = self.config.get('request', {})
+        max_filename_length = output_config.get('max_filename_length', 200)
+        self.gallery_title, last_page_number = self.parser.extract_gallery_info(main_html, max_filename_length)
+
+        pdf_folder = output_config.get('pdf_folder', '/app/sharedFolder/ehentai/pdf')
+        all_files = os.listdir(pdf_folder)
+        pattern = re.compile(rf"^{re.escape(self.gallery_title)}(?: part \d+)?\.pdf$")
+        matching_files = [
+            os.path.join(pdf_folder, f) for f in all_files if pattern.match(f)
+        ]
+
+        files = natsorted(matching_files)
+        if files:
+            await event.send(event.plain_result("已找到本地画廊，发送中..."))
+            await self.uploader.upload_file(event, pdf_folder, self.gallery_title)
+            return True
+
+        await event.send(event.plain_result("正在下载画廊图片，请稍候..."))
+
+        page_urls = [f"{gallery_url}?p={page}" for page in range(last_page_number)]
+        all_subpage_urls = []
+
+        for page_index, page_url in enumerate(page_urls):
+            html_content = await self.fetch_with_retry(session, page_url)
+            if html_content:
+                subpages = self.parser.extract_subpage_urls(html_content)
+                for position, url in enumerate(subpages):
+                    all_subpage_urls.append({
+                        "url": url,
+                        "page": page_index,
+                        "position": position,
+                        "image_number": len(all_subpage_urls) + 1
+                    })
+
+        queue = asyncio.Queue()
+        for item in all_subpage_urls:
+            await queue.put(item)
+
+        results = []
+
+        async def download_worker():
+            while not queue.empty():
+                try:
+                    item = await queue.get()
+                    result = await self._process_subpage_with_tracking(session, item)
+                    results.append(result)
+                except Exception as e:
+                    logger.error(f"工作线程错误: {str(e)}")
+                finally:
+                    queue.task_done()
+
+        workers = [download_worker() for _ in range(request_config.get('concurrency', 10))]
+        await asyncio.gather(*workers)
+
+        successful = [r for r in results if r.get("success")]
+        failed = [r for r in results if not r.get("success")]
+
+        if failed:
+            await event.send(event.plain_result(f"首次下载完成，但有 {len(failed)} 个页面失败，正在重试..."))
+            retry_results = await self.retry_failed_downloads(session, failed)
+
+            retry_successful = [r for r in retry_results if r.get("success")]
+            retry_failed = [r for r in retry_results if not r.get("success")]
+
+            successful.extend(retry_successful)
+            failed = retry_failed
+
+        if failed:
+            await event.send(event.plain_result(f"下载完成，但仍有 {len(failed)} 个页面失败"))
+        else:
+            await event.send(event.plain_result("所有页面下载成功"))
+
+        return False
+
+    async def retry_failed_downloads(self, session: aiohttp.ClientSession,
+                                     failed_items: list) -> list:
+        if not failed_items:
+            return []
+
+        retry_queue = asyncio.Queue()
+        for item in failed_items:
+            await retry_queue.put(item["item"])
+
+        retry_results = []
+
+        async def retry_worker():
+            while not retry_queue.empty():
+                try:
+                    item = await retry_queue.get()
+                    result = await self._process_subpage_with_tracking(session, item)
+                    retry_results.append(result)
+                except Exception as e:
+                    logger.error(f"重试工作线程错误: {str(e)}")
+                finally:
+                    retry_queue.task_done()
+
+        request_config = self.config.get('request', {})
+        concurrency = request_config.get('concurrency', 10)
+        retry_workers = [retry_worker() for _ in range(max(1, concurrency // 2))]
+        await asyncio.gather(*retry_workers)
+
+        return retry_results
+
+    async def merge_images_to_pdf(self, event: AstrMessageEvent, gallery_title: str) -> str:
+        await event.send(event.plain_result("正在将图片合并为pdf文件，请稍候..."))
+        output_config = self.config.get('output', {})
+        image_folder = output_config.get('image_folder', '/app/sharedFolder/ehentai/tempImages')
+        pdf_folder = output_config.get('pdf_folder', '/app/sharedFolder/ehentai/pdf')
+        max_filename_length = output_config.get('max_filename_length', 200)
+        max_pages = output_config.get('max_pages_per_pdf', 200)
+        image_files = natsorted(glob.glob(str(Path(image_folder) / "*.jpg")))
+        if not image_files:
+            logger.warning("没有可用的图片文件")
+        
+        # 导入HTML解析器以使用文件名清理函数
+        from .html_parser import HTMLParser
+        
+        # 从配置中获取文件名长度限制，并为PDF后缀预留空间
+        pdf_safe_length = max_filename_length - 20  # 为 " part XX.pdf" 预留空间
+        safe_title = HTMLParser.sanitize_filename(gallery_title, max_length=pdf_safe_length)
+        
+        pdf_dir = Path(pdf_folder)
+        
+        if 0 < max_pages < len(image_files):
+            total = math.ceil(len(image_files) / max_pages)
+            for i in range(total):
+                batch = image_files[i * max_pages: (i + 1) * max_pages]
+                output_path = pdf_dir / f"{safe_title} part {i + 1}.pdf"
+                with open(output_path, "wb") as f:
+                    f.write(img2pdf.convert(batch))
+                logger.info(f"生成PDF: {output_path.name}")
+        else:
+            output_path = pdf_dir / f"{safe_title}.pdf"
+            with open(output_path, "wb") as f:
+                f.write(img2pdf.convert(image_files))
+            logger.info(f"生成PDF: {output_path.name}")
+        
+        # 更新类变量以确保其他地方使用的是安全的文件名
+        self.gallery_title = safe_title
+        
+        return safe_title  # 返回使用的安全文件名
+            
+    async def get_archive_url(self, session: aiohttp.ClientSession, gid: str, token: str) -> Optional[str]:
+        """获取画廊归档下载链接"""
+        request_config = self.config.get('request', {})
+        website = request_config.get('website', 'e-hentai')
+        base_url = f"https://{website}.org"
+        
+        # 获取归档页面
+        archive_url = f"{base_url}/archiver.php?gid={gid}&token={token}"
+        
+        proxy_conf = request_config.get('proxy', {})
+        cookies = request_config.get('cookies') if website == 'exhentai' else None
+        headers = request_config.get('headers', {})
+        timeout = request_config.get('timeout', 30)
+        
+        try:
+            async with session.post(
+                archive_url,
+                headers=headers,
+                proxy=proxy_conf.get('url'),
+                proxy_auth=proxy_conf.get('auth'),
+                timeout=aiohttp.ClientTimeout(total=timeout),
+                ssl=False,
+                cookies=cookies
+            ) as response:
+                response.raise_for_status()
+                html_content = await response.text()
+                
+                # 请求下载原始归档
+                async with session.post(
+                    archive_url,
+                    headers=headers,
+                    proxy=proxy_conf.get('url'),
+                    proxy_auth=proxy_conf.get('auth'),
+                    timeout=aiohttp.ClientTimeout(total=timeout),
+                    ssl=False,
+                    cookies=cookies,
+                    data={
+                        "dltype": "org",
+                        "dlcheck": "Download+Original+Archive",
+                    }
+                ) as dl_response:
+                    dl_response.raise_for_status()
+                    dl_html = await dl_response.text()
+                    
+                    # 提取下载链接
+                    match = re.search(r'document\.location = "(.*?)";', dl_html, re.DOTALL)
+                    if not match:
+                        return None
+                        
+                    d_url = match.group(1)
+                    
+                    # 清除会话
+                    await session.post(
+                        archive_url,
+                        headers=headers,
+                        proxy=proxy_conf.get('url'),
+                        proxy_auth=proxy_conf.get('auth'),
+                        timeout=aiohttp.ClientTimeout(total=timeout),
+                        ssl=False,
+                        cookies=cookies,
+                        data={"invalidate_sessions": "1"}
+                    )
+                    
+                    # 返回不会自动开始下载的链接
+                    return f"{d_url.removesuffix('?autostart=1')}"
+        except Exception as e:
+            logger.error(f"获取归档链接失败: {str(e)}")
+            return None
+            
+    async def crawl_ehentai(self, search_term: str, min_rating: int = 0, min_pages: int = 0, target_page: int = 1) -> \
+    List[Dict[str, Any]]:
+        request_config = self.config.get('request', {})
+        website = request_config.get('website', 'e-hentai')
+        base_url = f"https://{website}.org/"
+        search_params = {'f_search': search_term, 'f_srdd': min_rating, 'f_spf': min_pages, 'range': target_page}
+        parsed_url = urlparse(base_url)
+        query = parse_qs(parsed_url.query)
+        query.update(search_params)
+        new_query = urlencode(query, doseq=True)
+        search_url = urlunparse(parsed_url._replace(query=new_query))
+
+        results = []
+
+        async with await self._get_session() as session:
+            html = await self.fetch_with_retry(session, search_url)
+            if html:
+                results = self.parser.parse_gallery_from_html(html)
+
+        return results

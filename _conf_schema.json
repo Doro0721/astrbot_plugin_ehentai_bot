@@ -1,0 +1,134 @@
+{
+    "platform_type": {
+        "description": "消息平台类型",
+        "type": "string",
+        "hint": "消息平台，兼容napcat, llonebot, lagrange 默认值：napcat",
+        "default": ""
+    },
+    "platform_http_host": {
+        "description": "HTTP服务器IP",
+        "type": "string",
+        "hint": "非docker部署一般为127.0.0.1，docker部署一般为宿主机局域网ip 默认值：127.0.0.1",
+        "default": ""
+    },
+    "platform_http_port": {
+        "description": "HTTP服务器端口",
+        "type": "string",
+        "hint": "HTTP服务器端口 默认值：2333",
+        "default": ""
+    },
+    "platform_api_token": {
+        "description": "HTTP服务器Token",
+        "type": "string",
+        "hint": "没有则不填 默认值：无",
+        "default": ""
+    },
+    "request_headers_user_agent": {
+        "description": "User-Agent 请求头",
+        "type": "string",
+        "hint": "HTTP请求使用的User-Agent 默认值：Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/134.0.0.0 Safari/537.36",
+        "default": ""
+    },
+    "request_website": {
+        "description": "网站类型",
+        "type": "string",
+        "hint": "表站: e-hentai | 里站: exhentai # 缺少有效cookie时请不要将website设置为exhentai 默认值：e-hentai",
+        "default": ""
+    },
+    "request_cookies_ipb_member_id": {
+        "description": "Cookie: ipb_member_id",
+        "type": "string",
+        "hint": "Cookie中的ipb_member_id值 默认值：无",
+        "default": ""
+    },
+    "request_cookies_ipb_pass_hash": {
+        "description": "Cookie: ipb_pass_hash",
+        "type": "string",
+        "hint": "Cookie中的ipb_pass_hash值 默认值：无",
+        "default": ""
+    },
+    "request_cookies_igneous": {
+        "description": "Cookie: igneous",
+        "type": "string",
+        "hint": "Cookie中的igneous值 默认值：无",
+        "default": ""
+    },
+    "request_cookies_sk": {
+        "description": "Cookie: sk",
+        "type": "string",
+        "hint": "Cookie中的sk值 默认值：无",
+        "default": ""
+    },
+    "request_proxies": {
+        "description": "代理设置",
+        "type": "string",
+        "hint": "代理设置（墙内用户必填项），代理软件位于宿主机时，非docker部署一般为http://127.0.0.1:port，docker部署一般为http://{宿主机局域网ip}:port 默认值：无",
+        "default": ""
+    },
+    "request_concurrency": {
+        "description": "并发数量限制",
+        "type": "string",
+        "hint": "并发请求的最大数量 默认值：10",
+        "default": ""
+    },
+    "request_max_retries": {
+        "description": "请求重试次数",
+        "type": "string",
+        "hint": "如果你的代理不稳定或带宽不够建议适量增加次数 默认值：3",
+        "default": ""
+    },
+    "request_timeout": {
+        "description": "超时时间",
+        "type": "string",
+        "hint": "请求超时时间（秒） 默认值：5",
+        "default": ""
+    },
+    "output_image_folder": {
+        "description": "缓存画廊图片的路径",
+        "type": "string",
+        "hint": "临时存储下载的图片的文件夹路径 默认值：/app/sharedFolder/ehentai/tempImages",
+        "default": ""
+    },
+    "output_pdf_folder": {
+        "description": "存放PDF文件的路径",
+        "type": "string",
+        "hint": "生成的PDF文件的保存路径 默认值：/app/sharedFolder/ehentai/pdf",
+        "default": ""
+    },
+    "output_search_cache_folder": {
+        "description": "缓存搜索结果的路径",
+        "type": "string",
+        "hint": "缓存每个用户搜索结果的路径 默认值：/app/sharedFolder/ehentai/searchCache",
+        "default": ""
+    },
+    "output_jpeg_quality": {
+        "description": "图片质量",
+        "type": "string",
+        "hint": "图片质量，100为不压缩，85左右可以达到文件大小和图片质量的最佳平衡 默认值：85",
+        "default": ""
+    },
+    "output_max_pages_per_pdf": {
+        "description": "单个PDF文件最大页数",
+        "type": "string",
+        "hint": "超过此页数将分割为多个PDF文件 默认值：200",
+        "default": ""
+    },
+    "output_max_filename_length": {
+        "description": "文件名最大长度限制",
+        "type": "string",
+        "hint": "文件名最大长度限制，超出部分将被截取 默认值：200",
+        "default": ""
+    },
+    "features_enable_formatted_message_search": {
+        "description": "启用格式化消息搜索功能",
+        "type": "bool",
+        "hint": "是否启用格式化消息搜索功能 默认值：true",
+        "default": true
+    },
+    "features_enable_cover_image_download": {
+        "description": "启用封面图片下载功能",
+        "type": "bool",
+        "hint": "是否下载拼接封面图片 默认值：true",
+        "default": true
+    }
+}

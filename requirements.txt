@@ -1,0 +1,11 @@
+asyncio
+aiofiles
+aiohttp
+beautifulsoup4
+img2pdf
+natsort
+Pillow
+python-magic
+glob2
+pathlib
+aiohttp-socks
