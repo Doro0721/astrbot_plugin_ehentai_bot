@@ -110,7 +110,7 @@ class MessageAdapter:
         return folder_id
 
     async def upload_file(self, event: AstrMessageEvent, path: str, name: str, folder_name: str = '/') -> Dict[str, Any]:
-        await event.send(event.plain_result(f"发送 {name} 中，请稍候..."))
+        logger.info(f"发送 {name} 中...")
 
         all_files = os.listdir(path)
         pattern = re.compile(rf"^{re.escape(name)}(?: part \d+)?\.pdf$")
@@ -176,14 +176,10 @@ class MessageAdapter:
         
         # 向用户反馈结果
         if process_result["failed_count"] == 0:
-            if process_result["total"] > 1:
-                await event.send(event.plain_result(f"✅ {name} (共 {process_result['total']} 部分) 已全部发送成功"))
-            else:
-                await event.send(event.plain_result(f"✅ {name} 已发送成功"))
+            logger.info(f"{name} 发送成功")
         else:
             error_msg = f"❌ {name} 发送失败 ({process_result['success_count']}/{process_result['total']} 成功)"
             if process_result["details"]["errors"]:
-                # 取第一个错误进行展示
                 first_error = process_result["details"]["errors"][0]
                 error_msg += f"\n原因: {first_error}"
             
@@ -229,3 +225,28 @@ class MessageAdapter:
                 "errors": errors
             }
         }
+
+    async def set_msg_emoji_like(self, message_id: str, emoji_id: str = "76"):
+        """对消息添加表情回应 (NapCat/LLOneBot)
+        emoji_id: QQ 表情 ID，默认76=赞
+        常用: 76=赞, 124=OK, 66=爱心, 4=得意, 277=汪汪
+        """
+        url = f"http://{self.http_host}:{self.http_port}/set_msg_emoji_like"
+        payload = {
+            "message_id": message_id,
+            "emoji_id": emoji_id
+        }
+        headers = self.get_headers()
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post(url, json=payload, headers=headers) as response:
+                    if response.status == 200:
+                        res = await response.json()
+                        if res.get("status") == "ok":
+                            logger.info(f"表情回应成功: msg={message_id}, emoji={emoji_id}")
+                        else:
+                            logger.warning(f"表情回应失败: {res}")
+                    else:
+                        logger.warning(f"表情回应请求失败: HTTP {response.status}")
+        except Exception as e:
+            logger.warning(f"表情回应异常: {e}")

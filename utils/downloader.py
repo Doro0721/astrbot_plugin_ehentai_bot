@@ -208,7 +208,7 @@ class Downloader:
             await self.uploader.upload_file(event, self.pdf_folder, self.gallery_title)
             return True
 
-        await event.send(event.plain_result("正在下载画廊图片，请稍候..."))
+        logger.info("正在下载画廊图片...")
 
         page_urls = [f"{gallery_url}?p={page}" for page in range(last_page_number)]
         all_subpage_urls = []
@@ -228,7 +228,7 @@ class Downloader:
         if not all_subpage_urls:
             raise ValueError("未在画廊页中解析到任何图片链接。请检查：\n1. 链接是否正确\n2. 如果是里站(ExHentai)，Cookie(igneous等)是否已正确配置并有效\n3. 是否遇到了 Sad Panda 限制")
         
-        await event.send(event.plain_result(f"解析完成，共 {len(all_subpage_urls)} 个页面，开始下载..."))
+        logger.info(f"解析完成，共 {len(all_subpage_urls)} 个页面，开始下载...")
         
         queue = asyncio.Queue()
         for item in all_subpage_urls:
@@ -266,7 +266,7 @@ class Downloader:
         if failed:
             await event.send(event.plain_result(f"下载完成，但仍有 {len(failed)} 个页面失败"))
         else:
-            await event.send(event.plain_result("所有页面下载成功"))
+            logger.info("所有页面下载成功")
 
         return False
 
@@ -300,7 +300,7 @@ class Downloader:
         return retry_results
 
     async def merge_images_to_pdf(self, event: AstrMessageEvent, gallery_title: str) -> str:
-        await event.send(event.plain_result("正在将图片合并为pdf文件，请稍候..."))
+        logger.info("正在将图片合并为PDF文件...")
         output_config = self.config.get('output', {})
         jpeg_quality = output_config.get('jpeg_quality', 85)
         max_filename_length = output_config.get('max_filename_length', 200)

@@ -29,7 +29,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-@register("astrbot_plugin_ehentai_bot", "Doro0721", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "4.1.3")
+@register("astrbot_plugin_ehentai_bot", "Doro0721", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "4.1.4")
 class EHentaiBot(Star):
     @staticmethod
     def _parse_proxy_config(proxy_str: str) -> Dict[str, Any]:
@@ -742,8 +742,8 @@ class EHentaiBot(Star):
             if not url:
                 return
 
-            # 通知用户
-            await event.send(event.plain_result(f"⏳ 开始下载: {url}"))
+            # 记录日志而非发送消息
+            logger.info(f"开始下载: {url}")
 
             async with await self.downloader._get_session() as session:
                 is_pdf_exist = await self.downloader.process_pagination(event, session, url)
@@ -789,6 +789,13 @@ class EHentaiBot(Star):
         
         await event.send(event.plain_result(f"🔍 正在解析画廊: {gid} ..."))
         
+        # 保存原始消息ID，用于下载完后表情回应
+        original_msg_id = None
+        try:
+            original_msg_id = event.message_obj.message_id
+        except:
+            pass
+        
         try:
             # 使用 Downloader 获取 HTML 并解析
             async with await self.downloader._get_session() as session:
@@ -813,9 +820,27 @@ class EHentaiBot(Star):
             # 封面通常在 #gleft 里的 #gd1 div -> img src
             soup = BeautifulSoup(html, "html.parser") # 修正调用
             
-            # 封面
-            cover_div = soup.select_one("#gd1 img")
-            cover_url = cover_div.get("src") if cover_div else None
+            # 封面 - 兼容 E-Hentai（img）和 ExHentai（div 背景样式）
+            cover_url = None
+            cover_img = soup.select_one("#gd1 img")
+            if cover_img:
+                cover_url = cover_img.get("src")
+            
+            if not cover_url:
+                # ExHentai 可能用 div 背景样式
+                cover_div = soup.select_one("#gd1 div")
+                if cover_div:
+                    style = cover_div.get("style", "")
+                    import re as re2
+                    m = re2.search(r'url\((.+?)\)', style)
+                    if m:
+                        cover_url = m.group(1).strip("'\"")
+            
+            # 如果还是没有封面，尝试 meta og:image
+            if not cover_url:
+                og_img = soup.select_one('meta[property="og:image"]')
+                if og_img:
+                    cover_url = og_img.get("content")
             
             # 标题 (HTMLParser 已经提取了 title，但可能是文件名安全的)
             # 获取原标题
@@ -899,8 +924,14 @@ class EHentaiBot(Star):
             await event.send(event.chain_result(chain))
             
             # 自动下载
-            # "只要是链接的歌就自动得发送送详情然后下载发送不要问回复"
             await self.download_gallery(event, gid, token)
+            
+            # 下载完成后对原消息添加表情回应
+            if original_msg_id:
+                try:
+                    await self.uploader.set_msg_emoji_like(str(original_msg_id), "76")  # 76=赞
+                except Exception as e:
+                    logger.warning(f"表情回应失败: {e}")
             
         except Exception as e:
             logger.error(f"链接解析失败: {e}")
