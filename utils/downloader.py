@@ -173,7 +173,9 @@ class Downloader:
         request_config = self.config.get('request', {})
         max_filename_length = output_config.get('max_filename_length', 200)
         self.gallery_title, last_page_number = self.parser.extract_gallery_info(main_html, max_filename_length)
-
+        if not self.gallery_title:
+            self.gallery_title = "gallery"
+            
         pdf_folder = output_config.get('pdf_folder', 'data/ehentai/pdf')
         all_files = os.listdir(pdf_folder)
         pattern = re.compile(rf"^{re.escape(self.gallery_title)}(?: part \d+)?\.pdf$")

@@ -123,7 +123,7 @@ class HTMLParser:
     @staticmethod
     def extract_gallery_info(html_content: str, max_filename_length: int = 200) -> Tuple[str, int]:
         if not html_content:
-            return None, 0
+            return "output", 0
 
         soup = BeautifulSoup(html_content, "html.parser")
 
@@ -135,12 +135,12 @@ class HTMLParser:
 
         pagination_row = soup.select_one("table.ptt > tr")
         if not pagination_row:
-            return title, 1
+            return title or "output", 1
 
         last_page_element = pagination_row.find_all("td")[-2].find("a")
         last_page_number = int(last_page_element.text.strip()) if last_page_element else 1
         
-        return title, last_page_number
+        return title or "output", last_page_number
 
     @staticmethod
     def extract_subpage_urls(html_content: str) -> List[str]:
