@@ -29,7 +29,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-@register("astrbot_plugin_ehentai_bot", "Doro0721", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "4.1.1")
+@register("astrbot_plugin_ehentai_bot", "Doro0721", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "4.1.2")
 class EHentaiBot(Star):
     @staticmethod
     def _parse_proxy_config(proxy_str: str) -> Dict[str, Any]:
@@ -757,6 +757,16 @@ class EHentaiBot(Star):
                     # 从 downloader 获取绝对路径
                     pdf_folder = self.downloader.pdf_folder
                     await self.uploader.upload_file(event, pdf_folder, safe_title)
+
+                    # 发送后自动清理 PDF 文件
+                    try:
+                        pattern = re.compile(rf"^{re.escape(safe_title)}(?: part \d+)?\.pdf$")
+                        for f in os.listdir(pdf_folder):
+                            if pattern.match(f):
+                                os.remove(os.path.join(pdf_folder, f))
+                        logger.info(f"已清理 PDF 文件: {safe_title}")
+                    except Exception as e:
+                        logger.warning(f"清理 PDF 文件失败: {e}")
 
         except Exception as e:
             import traceback
