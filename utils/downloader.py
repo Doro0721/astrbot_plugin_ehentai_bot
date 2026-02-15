@@ -96,8 +96,13 @@ class Downloader:
                     break
             except Exception as e:
                 last_exception = e
-                stack_info = traceback.format_exc()
-                logger.warning(f"尝试 {attempt + 1}/{max_retries} 失败: {url} - {str(e)}\n{stack_info}")
+                if attempt == max_retries - 1:
+                    logger.error(f"Failed to fetch content from {url} after {max_retries} attempts")
+                    # 抛出最后的异常以供上层诊断，并附带堆栈
+                    import traceback
+                    error_msg = f"请求失败 ({url}): {str(last_exception)}\n{traceback.format_exc()}"
+                    logger.error(error_msg)
+                    raise Exception(error_msg)
 
             if attempt < max_retries - 1:
                 await asyncio.sleep(2 ** attempt)
@@ -105,6 +110,19 @@ class Downloader:
         error_msg = f"请求失败 ({url}): {str(last_exception)}\n{traceback.format_exc()}"
         logger.error(error_msg)
         raise Exception(error_msg)
+    
+    async def fetch_bytes_with_retry(self, session: aiohttp.ClientSession, url: str) -> Optional[bytes]:
+        """获取二进制内容（如图片）"""
+        request_config = self.config.get('request', {})
+        max_retries = request_config.get('max_retries', 3)
+        for attempt in range(max_retries):
+            try:
+                async with session.get(url, timeout=10) as response:
+                    if response.status == 200:
+                        return await response.read()
+            except Exception:
+                await asyncio.sleep(1)
+        return None
 
     async def download_image_with_fixed_number(self, session: aiohttp.ClientSession, img_url: str,
                                                image_number: int) -> bool:

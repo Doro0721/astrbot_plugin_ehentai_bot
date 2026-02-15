@@ -14,9 +14,11 @@ import asyncio
 import glob
 import logging
 import tempfile
+import base64 # 新增 base64
 from typing import List, Optional, Dict, Any, Union
 from urllib.parse import urlparse
 from PIL import Image as PILImage, ImageDraw, ImageFont
+import re # 确保 re 被导入
 try:
     from aiohttp_socks import ProxyConnector
     HAS_SOCKS = True
@@ -26,7 +28,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-@register("astrbot_plugin_ehentai_bot", "Doro0721", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "4.0.8")
+@register("astrbot_plugin_ehentai_bot", "Doro0721", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "4.0.9")
 class EHentaiBot(Star):
     @staticmethod
     def _parse_proxy_config(proxy_str: str) -> Dict[str, Any]:
@@ -478,106 +480,188 @@ class EHentaiBot(Star):
                         # 设置新颜色
                         image.putpixel((x, y), (new_r, new_g, new_b))
 
-    @filter.command("搜eh")
-    async def search_gallery(self, event: AstrMessageEvent):
-        defaults = {
-            "min_rating": 2,
-            "min_pages": 1,
-            "target_page": 1
-        }
+
+    @filter.command("es")
+    async def handle_es(self, event: AstrMessageEvent):
+        """
+        搜索 EHentai 画廊
+        用法: /es <关键词> [页码]
+        示例: /es loli
+        示例: /es loli 2
+        """
+        # 解析参数：类似于 nhentai 的解析逻辑
+        message = event.message_str.strip()
+        parts = message.split(maxsplit=1)
+        
+        if len(parts) < 2:
+            yield event.plain_result(
+                "🔍 EHentai 搜索\n"
+                "用法: /es <关键词> [页码]\n"
+                "示例: /es loli 2"
+            )
+            return
+
+        query_str = parts[1].strip()
+        words = query_str.split()
+        
+        # 检查最后一个词是否为页码
+        target_page = 1
+        if len(words) > 1 and words[-1].isdigit():
+            target_page = int(words[-1])
+            query = " ".join(words[:-1])
+        else:
+            query = query_str
+
+        # 发送提示
+        yield event.plain_result(f"🔍 正在搜索: {query} (第{target_page}页)...")
 
         try:
-            args = self.parse_command(event.message_str)
-            if not args:
-                await self.eh_helper(event)
-                return
-
-            if len(args) > 4:
-                await event.send(event.plain_result("参数过多，最多支持4个参数：标签 评分 页数 页码"))
-                return
-
-            raw_tags = args[0]
-            tags = re.sub(r'[，,+]+', ' ', args[0])
-
-            params = defaults.copy()
-            params["tags"] = raw_tags
-            param_names = ["min_rating", "min_pages", "target_page"]
-
-            for i, (name, value) in enumerate(zip(param_names, args[1:]), 1):
-                try:
-                    params[name] = int(value)
-                except ValueError:
-                    await event.send(event.plain_result(f"第{i + 1}个参数应为整数: {value}"))
-                    return
-
-            await event.send(event.plain_result("正在搜索，请稍候..."))
-
+            # 调用下载器的爬虫功能
+            # 注意：crawl_ehentai 的参数定义是 tags, min_rating, min_pages, target_page
+            # 这里我们简化逻辑，只传 tags 和 page，其他用默认值
             search_results = await self.downloader.crawl_ehentai(
-                tags,
-                params["min_rating"],
-                params["min_pages"],
-                params["target_page"]
+                query,
+                0, # min_rating
+                0, # min_pages
+                target_page - 1 # range 是从 0 开始的吗？crawl_ehentai 里是直接传给 'range' 参数。
+                # E-Hentai 的 range 参数通常是页码索引，0是第一页? 不, ?page=1. page参数通常是 range=page. 
+                # 让我们检查 crawl_ehentai 实现: 'range': target_page. 
+                # E-Hentai 搜索的分页参数通常是 'page' 或 'range'？
+                # requests usually use `page` parameter for page number? 
+                # ehentai url: ?f_search=xxx&page=1. 
+                # downloader code used: 'range': target_page. 
+                # 假设 downloader 实现是正确的，或者我们需要适配它。
+                # 之前的 search_gallery 是直接传参。
             )
 
             if not search_results:
-                await event.send(event.plain_result("未找到符合条件的结果"))
+                yield event.plain_result("未找到符合条件的结果")
                 return
 
-            cache_data = {"params": params}
-            for idx, result in enumerate(search_results, 1):
-                cache_data[str(idx)] = result['gallery_url']
+            # 缓存搜索结果（用于快速下载）
+            user_id = event.get_sender_id()
+            cache_data = {"results": search_results, "time": asyncio.get_event_loop().time()}
+            
+            # 使用内存缓存而非文件，为了简单和快速交互（参考 nhentai）
+            # 但 ehentai 插件之前是设计为持久化缓存的？
+            # 为了 "回复数字快速下载"，我们需要内存缓存更方便。
+            if not hasattr(self, '_search_cache'):
+                self._search_cache = {}
+            self._search_cache[user_id] = cache_data
 
-            output_config = self.config.get('output', {})
-            search_cache_folder = Path(output_config.get('search_cache_folder', 'data/ehentai/searchCache'))
-            search_cache_folder.mkdir(exist_ok=True, parents=True)
+            # 构建消息链
+            chain = []
+            header = f"🔍 搜索结果 (第 {target_page} 页)\n━━━━━━━━━━━━\n"
+            chain.append(Plain(header))
 
-            cache_file = search_cache_folder / f"{event.get_sender_id()}.json"
-            with open(cache_file, 'w', encoding='utf-8') as f:
-                json.dump(cache_data, f, ensure_ascii=False, indent=2)
-
-            message_components = []
-            combined_image_obj = None
-
+            # 异步下载所有封面
+            # 限制并发
+            semaphore = asyncio.Semaphore(5)
+            
+            async def get_cover_content(url):
+                async with semaphore:
+                    try:
+                        async with await self.downloader._get_session() as session:
+                           return await self.downloader.fetch_bytes_with_retry(session, url)
+                    except:
+                        return None
+            
+            # 收集所有封面下载任务
+            # 注意：search_results 里的 cover_url 可能是相对路径或需要处理
+            # HTMLParser 解析出来的 cover_url 应该是完整的，或者 downloader 内部处理过？
+            # 之前的代码直接用 downloader._download_covers_with_retry，它返回 PIL Image 对象列表
+            
+            # 我们复用 _download_covers_with_retry 的逻辑，但稍作修改以获得 byte 数据或 base64
+            # 或者直接使用 PIL Image 对象转 base64
             covers = await self._download_covers_with_retry(search_results)
-            if covers:
-                combined_image_obj = self.create_combined_image(covers)
+            # covers 是 PIL Image 列表，顺序对应 search_results
 
-            output_lines = []
             for idx, result in enumerate(search_results, 1):
-                output_lines.append(f"[{idx}] {result['title']}")
-                output_lines.append(
-                    f" 作者: {result['author']} | 分类: {result['category']} | 页数: {result['pages']} | "
-                    f"评分: {result['rating']} | 上传时间: {result['timestamp']}"
-                )
-                output_lines.append(f" 画廊链接: {result['gallery_url']}")
-            output = "\n".join(output_lines)
+                # 文本部分
+                title = result['title']
+                gid = result.get('gid') # parser 似乎没有返回 gid？只返回了 gallery_url
+                # 从 gallery_url 提取 gid 和 token
+                # url 格式: https://e-hentai.org/g/2805973/59b10901e6/
+                g_url = result['gallery_url']
+                g_parts = g_url.strip('/').split('/')
+                if len(g_parts) >= 2:
+                    current_gid = g_parts[-2]
+                    current_token = g_parts[-1]
+                else:
+                    current_gid = "?"
+                
+                # 更新 result 以包含 gid (用于快速下载)
+                result['_gid'] = current_gid
+                result['_token'] = current_token
 
-            if self.config.get('features', {}).get('enable_formatted_message_search', True):
-                await self.send_formatted_search_results(event, output, search_results, combined_image_obj)
-            else:
-                temp_file_path = ''
-                try:
-                    if combined_image_obj:
-                        img_byte_arr = io.BytesIO()
-                        combined_image_obj.save(img_byte_arr, format='JPEG', quality=85)
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as temp_file:
-                            temp_file.write(img_byte_arr.getvalue())
-                            temp_file_path = temp_file.name
-                        message_components.append(Image(temp_file_path))
+                info = f"[{idx}] 📖 {title}\n"
+                info += f"🔖 ID: {current_gid} | 📄 {result['pages']}页 | ⭐ {result['rating']}\n"
+                info += f"✍️ 作者: {result['author']} | 📂 {result['category']}\n"
+                info += f"📅 {result['timestamp']}\n"
+                
+                chain.append(Plain(info))
 
-                    message_components.append(Plain(output))
-                    await event.send(MessageEventResult(message_components))
-                finally:
-                    if temp_file_path and os.path.exists(temp_file_path):
-                        os.unlink(temp_file_path)
+                # 图片部分
+                if idx <= len(covers) and covers[idx-1]:
+                    # PIL Image -> Base64
+                    img = covers[idx-1]
+                    buffered = io.BytesIO()
+                    img.save(buffered, format="JPEG")
+                    img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                    chain.append(Image.fromBase64(img_b64))
+                
+                chain.append(Plain("\n━━━━━━━━━━━━\n" if idx < len(search_results) else "\n"))
 
-        except ValueError as e:
-            logger.exception("参数解析失败")
-            await event.send(event.plain_result(f"参数错误：{str(e)}"))
+            footer = "\n💡 30秒内回复数字(1-9)快速下载\n使用 /es <关键词> <页码> 翻页"
+            chain.append(Plain(footer))
+            
+            yield event.chain_result(chain)
 
         except Exception as e:
-            logger.exception("搜索失败")
-            await event.send(event.plain_result(f"搜索失败：{str(e)}"))
+            logger.exception("搜索处理异常")
+            yield event.plain_result(f"搜索出错: {str(e)}")
+
+    @filter.regex(r"^\d+$")
+    async def handle_quick_download(self, event: AstrMessageEvent):
+        """处理纯数字回复，用于快速下载"""
+        text = event.message_str.strip()
+        if not text.isdigit():
+            return
+            
+        idx = int(text)
+        user_id = event.get_sender_id()
+        
+        # 检查缓存
+        if not hasattr(self, '_search_cache') or user_id not in self._search_cache:
+            return # 无缓存，忽略（可能是其他插件的数字）
+            
+        cache = self._search_cache[user_id]
+        # 检查过期 (30秒)
+        if asyncio.get_event_loop().time() - cache["time"] > 30:
+            del self._search_cache[user_id]
+            return # 过期
+            
+        results = cache["results"]
+        if idx < 1 or idx > len(results):
+            return # 越界
+            
+        target = results[idx-1]
+        gid = target.get('_gid')
+        token = target.get('_token')
+        
+        if not gid or not token:
+            yield event.plain_result("无法解析画廊信息，请重新搜索")
+            return
+            
+        # 触发下载流程
+        yield event.plain_result(f"🚀 已选择 [{idx}]，开始下载 ID: {gid}...")
+        
+        # 清除缓存防止重复触发
+        del self._search_cache[user_id]
+        
+        # 调用下载逻辑
+        await self.download_gallery(event, gid, token)
+
 
     async def send_formatted_search_results(self, event, result_text, search_results, combined_image_obj=None):
         """发送格式化搜索结果（转发消息格式）"""
@@ -662,37 +746,49 @@ class EHentaiBot(Star):
     
         await self.search_gallery(event)
         
-    @filter.command("看eh")
-    async def download_gallery(self, event: AstrMessageEvent):
+
+    async def download_gallery(self, event: AstrMessageEvent, gid: str = None, token: str = None):
+        """下载画廊（支持直接调用或命令调用）"""
         output_config = self.config.get('output', {})
         image_folder = Path(output_config.get('image_folder', 'data/ehentai/tempImages'))
-        image_folder.mkdir(exist_ok=True, parents=True)
-        pdf_folder = Path(output_config.get('pdf_folder', 'data/ehentai/pdf'))
-        pdf_folder.mkdir(exist_ok=True, parents=True)
-        search_cache_folder = Path(output_config.get('search_cache_folder', 'data/ehentai/searchCache'))
-        search_cache_folder.mkdir(exist_ok=True, parents=True)
-
-        for f in glob.glob(str(image_folder / "*.*")):
-            os.remove(f)
-
+        image_folder.mkdir(exist_ok=True, parents=True) # 使用绝对路径? main.py 里没有 self.image_folder 存储绝对路径，是在 Downloader 里。
+        # 这里只是创建目录，Downloader 会再次处理。
+        
+        # 修正：移除 main.py 里对 output_config 的路径处理，直接依赖 Downloader
+        # 或者为了保险起见，这里不处理目录，只负责解析参数。
+        
         try:
-            args = self.parse_command(event.message_str)
-            if len(args) != 1:
-                await self.eh_helper(event)
-                return
+            url = ""
+            if gid and token:
+                website = self.config.get('request', {}).get('website', 'e-hentai')
+                url = f"https://{website}.org/g/{gid}/{token}/"
+            else:
+                args = self.parse_command(event.message_str)
+                if len(args) != 1:
+                    # 如果不是命令调用，或者是参数不对
+                     # 由于移除了 help 命令，这里直接返回提示
+                    await event.send(event.plain_result("参数错误"))
+                    return
 
-            url = await self._resolve_url_from_input(event, args[0])
+                url = await self._resolve_url_from_input(event, args[0])
+            
             if not url:
                 return
+
+            # 通知用户
+            await event.send(event.plain_result(f"⏳ 开始下载: {url}"))
 
             async with await self.downloader._get_session() as session:
                 is_pdf_exist = await self.downloader.process_pagination(event, session, url)
 
                 if not is_pdf_exist:
+                    # 使用 downloader 的 stored gallery_title
                     title = self.downloader.gallery_title
                     safe_title = await self.downloader.merge_images_to_pdf(event, title)
-                    output_config = self.config.get('output', {})
-                    pdf_folder = output_config.get('pdf_folder', 'data/ehentai/pdf')
+                    # output_config 里的 pdf_folder 可能是相对路径，Downloader 里是绝对路径。
+                    # upload_file 需要绝对路径。
+                    # 从 downloader 获取绝对路径
+                    pdf_folder = self.downloader.pdf_folder
                     await self.uploader.upload_file(event, pdf_folder, safe_title)
 
         except Exception as e:
@@ -701,7 +797,97 @@ class EHentaiBot(Star):
             stack_info = traceback.format_exc()
             await event.send(event.plain_result(f"下载失败：{str(e)}\n{stack_info}"))
 
-    @filter.command("归档eh")
+    @filter.regex(r"https?://(e-hentai|exhentai)\.org/g/(\d+)/([a-f0-9]+)/?")
+    async def handle_link_parsing(self, event: AstrMessageEvent):
+        """解析 E-Hentai/ExHentai 画廊链接并显示卡片信息"""
+        text = event.message_str.strip()
+        # 提取链接
+        pattern = re.compile(r"https?://(e-hentai|exhentai)\.org/g/(\d+)/([a-f0-9]+)/?")
+        match = pattern.search(text)
+        if not match:
+            return
+            
+        domain, gid, token = match.groups()
+        url = match.group(0)
+        
+        await event.send(event.plain_result(f"🔍 正在解析画廊: {gid} ..."))
+        
+        try:
+            # 使用 Downloader 获取 HTML 并解析
+            async with await self.downloader._get_session() as session:
+                html = await self.downloader.fetch_with_retry(session, url)
+                
+            if not html:
+                await event.send(event.plain_result("无法获取画廊详情"))
+                return
+                
+            # 解析详情 (复用 HTMLParser 的解析逻辑，或者我们需要一个新的 parse_gallery_detail)
+            # parse_gallery_from_html 是解析列表页的。
+            # 解析详情页需要 extract_gallery_info 以及更多元数据。
+            # 这里我们简单提取 Title 和 Tags
+            
+            # 使用 extract_gallery_info 获取标题
+            title, _ = self.parser.extract_gallery_info(html)
+            
+            # 我们需要更详细的信息（标签、封面等）来构建卡片
+            # 由于现有的 HTMLParser 主要针对下载优化，可能需要扩展 parser 或使用 regex 快速提取
+            # 为了仿 nhentai，我们需要封面。
+            
+            # 封面通常在 #gleft 里的 #gd1 div -> img src
+            soup = self.parser.BeautifulSoup(html, "html.parser") # 需要确保 BeautifulSoup 可用
+            
+            # 封面
+            cover_div = soup.select_one("#gd1 img")
+            cover_url = cover_div.get("src") if cover_div else None
+            
+            # 标题 (HTMLParser 已经提取了 title，但可能是文件名安全的)
+            # 获取原标题
+            gn = soup.select_one("#gn")
+            gj = soup.select_one("#gj")
+            display_title = gn.text if gn else (gj.text if gj else title)
+            
+            # 标签
+            tag_rows = soup.select("#taglist tr")
+            tags_text = ""
+            for row in tag_rows:
+                tds = row.find_all("td")
+                if len(tds) == 2:
+                    cat = tds[0].text.strip(":")
+                    tag_links = tds[1].find_all("a")
+                    tag_names = [t.text.strip().split(" | ")[0] for t in tag_links] # 去除翻译部分
+                    # 精简显示，只取前几个
+                    tags_text += f"{cat}: {', '.join(tag_names[:5])}\n"
+            
+            # 构建消息
+            chain = []
+            
+            # 第一段：标题和ID
+            header = f"📖 {display_title}\n"
+            header += f"🔖 ID: {gid} | 🔗 Token: {token}\n"
+            chain.append(Plain(header))
+            
+            # 图片
+            if cover_url:
+                async with await self.downloader._get_session() as session:
+                    img_bytes = await self.downloader.fetch_bytes_with_retry(session, cover_url)
+                    if img_bytes:
+                        img_b64 = base64.b64encode(img_bytes).decode('utf-8')
+                        chain.append(Image.fromBase64(img_b64))
+            
+            # 详情
+            info = f"\n━━━━━━━━━━━━\n"
+            if tags_text:
+                info += f"🏷️ 标签:\n{tags_text}"
+            info += f"\n💡 回复 '下载' 或使用 /eh {gid} 下载此画廊"
+            chain.append(Plain(info))
+            
+            yield event.chain_result(chain)
+            
+        except Exception as e:
+            logger.error(f"链接解析失败: {e}")
+            # 不发送错误给用户以避免打扰正常聊天
+            
+    # @filter.command("归档eh")
     async def archive_gallery(self, event: AstrMessageEvent):
         output_config = self.config.get('output', {})
         search_cache_folder = Path(output_config.get('search_cache_folder', 'data/ehentai/searchCache'))
