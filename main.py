@@ -31,7 +31,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-@register("astrbot_plugin_ehentai_bot", "Doro0721", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "4.1.6")
+@register("astrbot_plugin_ehentai_bot", "Doro0721", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "4.2.6")
 class EHentaiBot(Star):
     @staticmethod
     def _parse_proxy_config(proxy_str: str) -> Dict[str, Any]:
@@ -771,9 +771,20 @@ class EHentaiBot(Star):
             stack_info = traceback.format_exc()
             await event.send(event.plain_result(f"下载失败：{str(e)}\n{stack_info}"))
 
-    @filter.regex(r"https?://(e-hentai|exhentai)\.org/g/(\d+)/([a-f0-9]+)/?")
+    @filter.regex(r"https?://(?:e-hentai|exhentai)\.org/g/\d+/[a-f0-9]+/?")
     async def handle_link_parsing(self, event: AstrMessageEvent, *args):
         """解析 E-Hentai/ExHentai 画廊链接并显示卡片信息"""
+        # 兼容性处理：如果 event 不是事件对象（可能是参数偏移），则从参数中寻找
+        if not hasattr(event, "message_str"):
+            for arg in args:
+                if hasattr(arg, "message_str"):
+                    event = arg
+                    break
+        
+        if not hasattr(event, "message_str"):
+            logger.error(f"无法获取消息内容，event类型: {type(event)}")
+            return
+
         text = event.message_str.strip()
         # 提取链接
         pattern = re.compile(r"https?://(e-hentai|exhentai)\.org/g/(\d+)/([a-f0-9]+)/?")
