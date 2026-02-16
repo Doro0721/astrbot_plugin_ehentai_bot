@@ -882,7 +882,8 @@ class EHentaiBot(Star):
                             if first_img_url:
                                 img_bytes = await self.downloader.fetch_bytes_with_retry(session, first_img_url)
                                 if img_bytes:
-                                    cover_img_obj = PILImage.open(io.BytesIO(img_bytes))                except Exception as e:
+                                    cover_img_obj = PILImage.open(io.BytesIO(img_bytes))
+                except Exception as e:
                     logger.warning(f"获取第一张原图失败，回退到缩略图: {e}")
                 
                 # 回退：如果原图获取失败，使用缩略图
