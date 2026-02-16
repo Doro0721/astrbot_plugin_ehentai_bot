@@ -31,7 +31,7 @@ except ImportError:
 logger = logging.getLogger(__name__)
 
 
-@register("astrbot_plugin_ehentai_bot", "Doro0721", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "4.2.8")
+@register("astrbot_plugin_ehentai_bot", "Doro0721", "适配 AstrBot 的 EHentai画廊 转 PDF 插件", "4.2.9")
 class EHentaiBot(Star):
     @staticmethod
     def _parse_proxy_config(proxy_str: str) -> Dict[str, Any]:
@@ -441,13 +441,13 @@ class EHentaiBot(Star):
         self.add_random_blocks(combined_image)
         return combined_image
 
-    def add_random_blocks(self, image):
+    def add_random_blocks(self, image, mirror=True):
         """添加随机色块并进行轻微图像变换以规避图片审查"""
         import random
         from PIL import ImageOps, ImageEnhance
 
         # 1. 随机水平翻转 (极其有效的 Hash 规避)
-        if random.random() > 0.5:
+        if mirror and random.random() > 0.5:
             image = ImageOps.mirror(image)
 
         # 2. 轻微亮度调节 (改变像素值)
@@ -936,8 +936,8 @@ class EHentaiBot(Star):
                                 (int(w * ratio), int(h * ratio)),
                                 PILImage.Resampling.LANCZOS
                             )
-                        # 应用反和谐处理
-                        cover_img_obj = self.add_random_blocks(cover_img_obj)
+                        # 应用反和谐处理（详情页预览图不翻转）
+                        cover_img_obj = self.add_random_blocks(cover_img_obj, mirror=False)
                         buffered = io.BytesIO()
                         # 调整 JPEG 质量到 80，兼顾体积和清晰度
                         cover_img_obj.convert("RGB").save(buffered, format="JPEG", quality=80)
