@@ -813,17 +813,23 @@ class EHentaiBot(Star):
                 # 使用 extract_gallery_info 获取标题
                 title, _ = self.parser.extract_gallery_info(html)
                 
-                # 封面通常在 #gd1 div -> img src
                 soup = BeautifulSoup(html, "html.parser")
                 
-                # 封面 - 兼容 E-Hentai（img）和 ExHentai（div 背景样式）
+                # 封面获取（按清晰度优先级排列）
                 cover_url = None
-                cover_img = soup.select_one("#gd1 img")
-                if cover_img:
-                    cover_url = cover_img.get("src")
+                
+                # 1. 优先从缩略图列表获取第一张大图（最清晰）
+                first_thumb = soup.select_one("#gdt .gdtl a img") or soup.select_one("#gdt .gdtm div img")
+                if first_thumb:
+                    cover_url = first_thumb.get("src")
+                
+                # 2. 从 #gd1 获取封面（兼容 img 和 div 背景样式）
+                if not cover_url:
+                    cover_img = soup.select_one("#gd1 img")
+                    if cover_img:
+                        cover_url = cover_img.get("src")
                 
                 if not cover_url:
-                    # ExHentai 可能用 div 背景样式
                     cover_div = soup.select_one("#gd1 div")
                     if cover_div:
                         style = cover_div.get("style", "")
@@ -831,11 +837,16 @@ class EHentaiBot(Star):
                         if m:
                             cover_url = m.group(1).strip("'\"")
                 
-                # 如果还是没有封面，尝试 meta og:image
+                # 3. 兜底: meta og:image
                 if not cover_url:
                     og_img = soup.select_one('meta[property="og:image"]')
                     if og_img:
                         cover_url = og_img.get("content")
+                
+                # 将缩略图 URL 转换为非缩略图版本以获取更高清的图片
+                # ehgt.org 的缩略图路径含 /t/ ，去掉即为大图
+                if cover_url and '//ehgt.org/t/' in cover_url:
+                    cover_url = cover_url.replace('//ehgt.org/t/', '//ehgt.org/')
                 
                 # 标题
                 gn = soup.select_one("#gn")
@@ -894,7 +905,7 @@ class EHentaiBot(Star):
                         if cover_img_obj:
                             self.add_random_blocks(cover_img_obj)
                             buffered = io.BytesIO()
-                            cover_img_obj.save(buffered, format="JPEG")
+                            cover_img_obj.save(buffered, format="PNG")
                             img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
                             chain.append(Image.fromBase64(img_b64))
                             logger.info("封面图下载成功")
