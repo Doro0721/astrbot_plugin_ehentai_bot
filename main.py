@@ -866,18 +866,49 @@ class EHentaiBot(Star):
                 cover_img_obj = None
                 try:
                     subpage_urls = self.parser.extract_subpage_urls(html)
+                    logger.info(f"子页面数量: {len(subpage_urls)}")
                     if subpage_urls:
+                        logger.info(f"第一张子页面 URL: {subpage_urls[0]}")
                         first_page_html = await self.downloader.fetch_with_retry(session, subpage_urls[0])
                         if first_page_html:
-                            first_img_url = self.parser.extract_image_url_from_page(first_page_html)
+                            # 多种方式尝试提取原图 URL
+                            sub_soup = BeautifulSoup(first_page_html, "html.parser")
+                            first_img_url = None
+                            
+                            # 方式1: id="img" 的 img 标签（EHentai 子页面标准结构）
+                            img_el = sub_soup.select_one("#img")
+                            if img_el:
+                                first_img_url = img_el.get("src")
+                                logger.info(f"通过 #img 找到: {first_img_url}")
+                            
+                            # 方式2: id="i3" 容器内的 img
+                            if not first_img_url:
+                                img_el = sub_soup.select_one("#i3 img")
+                                if img_el:
+                                    first_img_url = img_el.get("src")
+                                    logger.info(f"通过 #i3 img 找到: {first_img_url}")
+                            
+                            # 方式3: 原有解析器方法
+                            if not first_img_url:
+                                first_img_url = self.parser.extract_image_url_from_page(first_page_html)
+                                logger.info(f"通过 parser 找到: {first_img_url}")
+                            
                             if first_img_url:
-                                logger.info(f"第一张原图 URL: {first_img_url}")
+                                logger.info(f"开始下载第一张原图: {first_img_url}")
                                 img_bytes = await self.downloader.fetch_bytes_with_retry(session, first_img_url)
                                 if img_bytes:
                                     cover_img_obj = PILImage.open(io.BytesIO(img_bytes))
-                                    logger.info("第一张原图下载成功")
+                                    logger.info(f"第一张原图下载成功，尺寸: {cover_img_obj.size}")
+                                else:
+                                    logger.warning("原图下载返回空")
+                            else:
+                                logger.warning("未能从子页面提取到图片 URL")
+                        else:
+                            logger.warning("子页面 HTML 获取失败")
                 except Exception as e:
                     logger.warning(f"获取第一张原图失败，回退到缩略图: {e}")
+                    import traceback
+                    logger.warning(traceback.format_exc())
                 
                 # 回退：如果原图获取失败，使用缩略图
                 if not cover_img_obj:
