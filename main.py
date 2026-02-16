@@ -4,6 +4,7 @@ from astrbot.api.message_components import Image, Plain, Nodes, Node
 from .utils.downloader import Downloader
 from .utils.html_parser import HTMLParser
 from .utils.message_adapter import MessageAdapter
+from .utils.tag_translator import TagTranslator
 from pathlib import Path
 import os
 import io
@@ -176,6 +177,7 @@ class EHentaiBot(Star):
         self.parser = HTMLParser()
         self.uploader = MessageAdapter(self.config)
         self.downloader = Downloader(self.config, self.uploader, self.parser)
+        self.tag_translator = TagTranslator()
 
     def add_number_to_image(self, image: PILImage.Image, number: int) -> PILImage.Image:
         """为单张图片添加数字序号"""
@@ -799,6 +801,9 @@ class EHentaiBot(Star):
         try:
             # 使用同一个 session 完成 HTML 获取和封面下载
             async with await self._get_session() as session:
+                # 确保标签翻译数据已加载
+                await self.tag_translator.ensure_loaded(session)
+                
                 html = await self.downloader.fetch_with_retry(session, url)
                 
                 if not html:
@@ -851,7 +856,7 @@ class EHentaiBot(Star):
                     "misc": "其他"
                 }
                 
-                # 标签解析
+                # 标签解析（使用 EhTagTranslation 翻译标签值）
                 tag_rows = soup.select("#taglist tr")
                 tags_text = ""
                 for row in tag_rows:
@@ -864,7 +869,9 @@ class EHentaiBot(Star):
                         tag_names = []
                         for t in tag_links:
                             raw_tag = t.text.strip().split(" | ")[0]
-                            tag_names.append(f"#{raw_tag}")
+                            # 使用 EhTagTranslation 翻译标签值为中文
+                            cn_tag = self.tag_translator.translate(cat_raw, raw_tag)
+                            tag_names.append(f"#{cn_tag}")
                         
                         if tag_names:
                             tags_text += f"{cat_cn}: {' '.join(tag_names)}\n"
