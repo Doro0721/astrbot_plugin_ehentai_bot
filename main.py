@@ -442,47 +442,42 @@ class EHentaiBot(Star):
         return combined_image
 
     def add_random_blocks(self, image):
-        """添加随机色块以规避图片审查"""
+        """添加随机色块并进行轻微图像变换以规避图片审查"""
         import random
-        
+        from PIL import ImageOps, ImageEnhance
+
+        # 1. 随机水平翻转 (极其有效的 Hash 规避)
+        if random.random() > 0.5:
+            image = ImageOps.mirror(image)
+
+        # 2. 轻微亮度调节 (改变像素值)
+        enhancer = ImageEnhance.Brightness(image)
+        image = enhancer.enhance(random.uniform(0.98, 1.02))
+
         width, height = image.size
         
-        # 添加10-20个随机色块
-        num_blocks = random.randint(10, 20)
-        
+        # 3. 添加少量极小随机色块
+        num_blocks = random.randint(5, 10)
         for _ in range(num_blocks):
-            # 随机位置
             x1 = random.randint(0, width - 1)
             y1 = random.randint(0, height - 1)
-            
-            # 随机大小（较小，不影响观看）
-            block_width = random.randint(3, 8)
-            block_height = random.randint(3, 8)
-            
-            # 确保色块不超出图片边界
+            block_width = random.randint(1, 3)
+            block_height = random.randint(1, 3)
             x2 = min(x1 + block_width, width - 1)
             y2 = min(y1 + block_height, height - 1)
             
-            # 随机颜色（半透明）
-            r = random.randint(0, 255)
-            g = random.randint(0, 255)
-            b = random.randint(0, 255)
-            alpha = random.randint(30, 100)  # 透明度
+            r, g, b = random.randint(0, 255), random.randint(0, 255), random.randint(0, 255)
+            alpha = random.randint(10, 30)
             
-            # 获取原始像素
             for x in range(x1, x2):
                 for y in range(y1, y2):
-                    if 0 <= x < width and 0 <= y < height:
-                        # 获取当前像素颜色
-                        current = image.getpixel((x, y))
-                        
-                        # 混合颜色（考虑透明度）
-                        new_r = int((current[0] * (255 - alpha) + r * alpha) / 255)
-                        new_g = int((current[1] * (255 - alpha) + g * alpha) / 255)
-                        new_b = int((current[2] * (255 - alpha) + b * alpha) / 255)
-                        
-                        # 设置新颜色
-                        image.putpixel((x, y), (new_r, new_g, new_b))
+                    current = image.getpixel((x, y))
+                    new_r = int((current[0] * (255 - alpha) + r * alpha) / 255)
+                    new_g = int((current[1] * (255 - alpha) + g * alpha) / 255)
+                    new_b = int((current[2] * (255 - alpha) + b * alpha) / 255)
+                    image.putpixel((x, y), (new_r, new_g, new_b))
+                    
+        return image
 
 
     @filter.command("es")
@@ -911,8 +906,8 @@ class EHentaiBot(Star):
                 # 构建封面消息
                 if cover_img_obj:
                     try:
-                        # 缩小到合理尺寸避免 QQ 发送超时
-                        max_side = 800
+                        # 提高尺寸上限以保证清晰度，同时处理反和谐
+                        max_side = 1000
                         w, h = cover_img_obj.size
                         if max(w, h) > max_side:
                             ratio = max_side / max(w, h)
@@ -920,9 +915,11 @@ class EHentaiBot(Star):
                                 (int(w * ratio), int(h * ratio)),
                                 PILImage.Resampling.LANCZOS
                             )
-                        self.add_random_blocks(cover_img_obj)
+                        # 应用反和谐处理
+                        cover_img_obj = self.add_random_blocks(cover_img_obj)
                         buffered = io.BytesIO()
-                        cover_img_obj.convert("RGB").save(buffered, format="JPEG", quality=90)
+                        # 提高 JPEG 质量到 95
+                        cover_img_obj.convert("RGB").save(buffered, format="JPEG", quality=95)
                         img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
                         chain.append(Image.fromBase64(img_b64))
                     except Exception as e:
