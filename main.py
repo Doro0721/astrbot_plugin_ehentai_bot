@@ -777,7 +777,7 @@ class EHentaiBot(Star):
             await event.send(event.plain_result(f"下载失败：{str(e)}\n{stack_info}"))
 
     @filter.regex(r"https?://(e-hentai|exhentai)\.org/g/(\d+)/([a-f0-9]+)/?")
-    async def handle_link_parsing(self, event: AstrMessageEvent):
+    async def handle_link_parsing(self, event: AstrMessageEvent, *args):
         """解析 E-Hentai/ExHentai 画廊链接并显示卡片信息"""
         text = event.message_str.strip()
         # 提取链接
