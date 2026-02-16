@@ -815,39 +815,6 @@ class EHentaiBot(Star):
                 
                 soup = BeautifulSoup(html, "html.parser")
                 
-                # 封面获取（按清晰度优先级排列）
-                cover_url = None
-                
-                # 1. 优先从缩略图列表获取第一张大图（最清晰）
-                first_thumb = soup.select_one("#gdt .gdtl a img") or soup.select_one("#gdt .gdtm div img")
-                if first_thumb:
-                    cover_url = first_thumb.get("src")
-                
-                # 2. 从 #gd1 获取封面（兼容 img 和 div 背景样式）
-                if not cover_url:
-                    cover_img = soup.select_one("#gd1 img")
-                    if cover_img:
-                        cover_url = cover_img.get("src")
-                
-                if not cover_url:
-                    cover_div = soup.select_one("#gd1 div")
-                    if cover_div:
-                        style = cover_div.get("style", "")
-                        m = re.search(r'url\((.+?)\)', style)
-                        if m:
-                            cover_url = m.group(1).strip("'\"")
-                
-                # 3. 兜底: meta og:image
-                if not cover_url:
-                    og_img = soup.select_one('meta[property="og:image"]')
-                    if og_img:
-                        cover_url = og_img.get("content")
-                
-                # 将缩略图 URL 转换为非缩略图版本以获取更高清的图片
-                # ehgt.org 的缩略图路径含 /t/ ，去掉即为大图
-                if cover_url and '//ehgt.org/t/' in cover_url:
-                    cover_url = cover_url.replace('//ehgt.org/t/', '//ehgt.org/')
-                
                 # 标题
                 gn = soup.select_one("#gn")
                 gj = soup.select_one("#gj")
@@ -880,7 +847,6 @@ class EHentaiBot(Star):
                         tag_names = []
                         for t in tag_links:
                             raw_tag = t.text.strip().split(" | ")[0]
-                            # 使用 EhTagTranslation 翻译标签值为中文
                             cn_tag = self.tag_translator.translate(cat_raw, raw_tag)
                             tag_names.append(f"#{cn_tag}")
                         
@@ -896,27 +862,57 @@ class EHentaiBot(Star):
                     info_text += tags_text
                 chain.append(Plain(info_text))
                 
-                # 封面图 - 在同一个 session 中下载
-                logger.info(f"封面 URL: {cover_url}")
-                if cover_url:
-                    try:
+                # 获取画廊第一张原图作为预览封面
+                cover_img_obj = None
+                try:
+                    subpage_urls = self.parser.extract_subpage_urls(html)
+                    if subpage_urls:
+                        first_page_html = await self.downloader.fetch_with_retry(session, subpage_urls[0])
+                        if first_page_html:
+                            first_img_url = self.parser.extract_image_url_from_page(first_page_html)
+                            if first_img_url:
+                                logger.info(f"第一张原图 URL: {first_img_url}")
+                                img_bytes = await self.downloader.fetch_bytes_with_retry(session, first_img_url)
+                                if img_bytes:
+                                    cover_img_obj = PILImage.open(io.BytesIO(img_bytes))
+                                    logger.info("第一张原图下载成功")
+                except Exception as e:
+                    logger.warning(f"获取第一张原图失败，回退到缩略图: {e}")
+                
+                # 回退：如果原图获取失败，使用缩略图
+                if not cover_img_obj:
+                    cover_url = None
+                    cover_img_tag = soup.select_one("#gd1 img")
+                    if cover_img_tag:
+                        cover_url = cover_img_tag.get("src")
+                    if not cover_url:
+                        cover_div = soup.select_one("#gd1 div")
+                        if cover_div:
+                            style = cover_div.get("style", "")
+                            m = re.search(r'url\((.+?)\)', style)
+                            if m:
+                                cover_url = m.group(1).strip("'\"")
+                    if not cover_url:
+                        og_img = soup.select_one('meta[property="og:image"]')
+                        if og_img:
+                            cover_url = og_img.get("content")
+                    if cover_url:
+                        logger.info(f"回退封面 URL: {cover_url}")
                         semaphore = asyncio.Semaphore(1)
                         cover_img_obj = await self.download_thumbnail(cover_url, session, semaphore)
-                        if cover_img_obj:
-                            self.add_random_blocks(cover_img_obj)
-                            buffered = io.BytesIO()
-                            cover_img_obj.save(buffered, format="PNG")
-                            img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
-                            chain.append(Image.fromBase64(img_b64))
-                            logger.info("封面图下载成功")
-                        else:
-                            logger.warning("封面图下载返回 None")
+                
+                # 构建封面消息
+                if cover_img_obj:
+                    try:
+                        self.add_random_blocks(cover_img_obj)
+                        buffered = io.BytesIO()
+                        cover_img_obj.save(buffered, format="PNG")
+                        img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
+                        chain.append(Image.fromBase64(img_b64))
                     except Exception as e:
                         logger.error(f"处理封面图失败: {e}")
-                        import traceback
-                        logger.error(traceback.format_exc())
                 else:
-                    logger.warning("未找到封面 URL")
+                    logger.warning("未能获取封面图")
             
             # 发送详情
             await event.send(event.chain_result(chain))
