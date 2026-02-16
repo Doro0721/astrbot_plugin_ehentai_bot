@@ -942,9 +942,18 @@ class EHentaiBot(Star):
                 # 构建封面消息
                 if cover_img_obj:
                     try:
+                        # 缩小到合理尺寸避免 QQ 发送超时
+                        max_side = 800
+                        w, h = cover_img_obj.size
+                        if max(w, h) > max_side:
+                            ratio = max_side / max(w, h)
+                            cover_img_obj = cover_img_obj.resize(
+                                (int(w * ratio), int(h * ratio)),
+                                PILImage.Resampling.LANCZOS
+                            )
                         self.add_random_blocks(cover_img_obj)
                         buffered = io.BytesIO()
-                        cover_img_obj.save(buffered, format="PNG")
+                        cover_img_obj.convert("RGB").save(buffered, format="JPEG", quality=90)
                         img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
                         chain.append(Image.fromBase64(img_b64))
                     except Exception as e:
