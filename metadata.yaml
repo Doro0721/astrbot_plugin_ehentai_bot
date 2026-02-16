@@ -1,6 +1,6 @@
 name: astrbot_plugin_ehentai_bot
 desc: 适配 Astrbot 的 EHentai画廊 转 PDF 插件
 help: None
-version: v4.2.6
+version: v4.2.7
 author: Doro0721
 repo: https://github.com/Doro0721/astrbot_plugin_ehentai_bot
