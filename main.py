@@ -912,8 +912,8 @@ class EHentaiBot(Star):
                 # 构建封面消息
                 if cover_img_obj:
                     try:
-                        # 提高尺寸上限以保证清晰度，同时处理反和谐
-                        max_side = 1000
+                        # 降低规格以确保 QQ 发送成功率
+                        max_side = 700
                         w, h = cover_img_obj.size
                         if max(w, h) > max_side:
                             ratio = max_side / max(w, h)
@@ -924,8 +924,8 @@ class EHentaiBot(Star):
                         # 应用反和谐处理
                         cover_img_obj = self.add_random_blocks(cover_img_obj)
                         buffered = io.BytesIO()
-                        # 提高 JPEG 质量到 95
-                        cover_img_obj.convert("RGB").save(buffered, format="JPEG", quality=95)
+                        # 调整 JPEG 质量到 80，兼顾体积和清晰度
+                        cover_img_obj.convert("RGB").save(buffered, format="JPEG", quality=80)
                         img_b64 = base64.b64encode(buffered.getvalue()).decode('utf-8')
                         chain.append(Image.fromBase64(img_b64))
                     except Exception as e:
