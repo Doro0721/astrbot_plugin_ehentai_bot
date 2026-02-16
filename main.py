@@ -864,57 +864,26 @@ class EHentaiBot(Star):
                 
                 # 获取画廊第一张原图作为预览封面
                 cover_img_obj = None
-                debug_info = []
                 try:
                     subpage_urls = self.parser.extract_subpage_urls(html)
-                    debug_info.append(f"子页面数量: {len(subpage_urls)}")
                     if subpage_urls:
-                        first_url = subpage_urls[0]
-                        debug_info.append(f"第一张子页面: {first_url}")
-                        first_page_html = await self.downloader.fetch_with_retry(session, first_url)
+                        first_page_html = await self.downloader.fetch_with_retry(session, subpage_urls[0])
                         if first_page_html:
-                            debug_info.append(f"子页面HTML长度: {len(first_page_html)}")
                             sub_soup = BeautifulSoup(first_page_html, "html.parser")
-                            first_img_url = None
+                            first_img_url = sub_soup.select_one("#img")
+                            if first_img_url:
+                                first_img_url = first_img_url.get("src")
                             
-                            # 方式1: id="img"
-                            img_el = sub_soup.select_one("#img")
-                            if img_el:
-                                first_img_url = img_el.get("src")
-                                debug_info.append(f"#img: {first_img_url}")
-                            
-                            # 方式2: id="i3" 内的 img
                             if not first_img_url:
                                 img_el = sub_soup.select_one("#i3 img")
                                 if img_el:
                                     first_img_url = img_el.get("src")
-                                    debug_info.append(f"#i3 img: {first_img_url}")
-                            
-                            # 方式3: 原有解析器
-                            if not first_img_url:
-                                first_img_url = self.parser.extract_image_url_from_page(first_page_html)
-                                debug_info.append(f"parser: {first_img_url}")
-                            
-                            if not first_img_url:
-                                debug_info.append("所有选择器均未找到图片URL")
                             
                             if first_img_url:
                                 img_bytes = await self.downloader.fetch_bytes_with_retry(session, first_img_url)
                                 if img_bytes:
-                                    cover_img_obj = PILImage.open(io.BytesIO(img_bytes))
-                                    debug_info.append(f"原图下载成功: {cover_img_obj.size}")
-                                else:
-                                    debug_info.append("原图字节下载返回空")
-                        else:
-                            debug_info.append("子页面HTML获取失败(None)")
-                    else:
-                        debug_info.append("未找到子页面链接")
-                except Exception as e:
-                    debug_info.append(f"异常: {type(e).__name__}: {e}")
-                
-                # 输出调试信息到控制台
-                if debug_info:
-                    print("[EH封面调试] " + " | ".join(debug_info))
+                                    cover_img_obj = PILImage.open(io.BytesIO(img_bytes))                except Exception as e:
+                    logger.warning(f"获取第一张原图失败，回退到缩略图: {e}")
                 
                 # 回退：如果原图获取失败，使用缩略图
                 if not cover_img_obj:
