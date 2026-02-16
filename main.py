@@ -14,6 +14,7 @@ import aiohttp
 import asyncio
 import glob
 import logging
+import traceback
 import tempfile
 import base64 # 新增 base64
 from typing import List, Optional, Dict, Any, Union
@@ -771,7 +772,6 @@ class EHentaiBot(Star):
                         logger.warning(f"清理 PDF 文件失败: {e}")
 
         except Exception as e:
-            import traceback
             logger.exception("下载失败")
             stack_info = traceback.format_exc()
             await event.send(event.plain_result(f"下载失败：{str(e)}\n{stack_info}"))
@@ -960,8 +960,17 @@ class EHentaiBot(Star):
                 else:
                     logger.warning("未能获取封面图")
             
-            # 发送详情
-            await event.send(event.chain_result(chain))
+            # 发送详情（如果带图发送失败，回退到纯文字）
+            try:
+                await event.send(event.chain_result(chain))
+            except Exception as e:
+                logger.warning(f"带图发送失败（可能被和谐），回退纯文字: {e}")
+                text_chain = [item for item in chain if not isinstance(item, Image)]
+                if text_chain:
+                    try:
+                        await event.send(event.chain_result(text_chain))
+                    except Exception:
+                        pass
             
             # 自动下载
             await self.download_gallery(event, gid, token)
