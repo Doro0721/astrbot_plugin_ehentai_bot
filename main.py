@@ -813,7 +813,13 @@ class EHentaiBot(Star):
                 # 标题
                 gn = soup.select_one("#gn")
                 gj = soup.select_one("#gj")
-                display_title = gn.text if gn else (gj.text if gj else title)
+                title_en = gn.text.strip() if gn else ""
+                title_jp = gj.text.strip() if gj else ""
+                
+                if title_jp and title_en and title_jp != title_en:
+                    display_title = f"{title_jp}\n{title_en}"
+                else:
+                    display_title = title_jp or title_en or title
                 
                 # 标签映射表
                 tag_mapping = {
