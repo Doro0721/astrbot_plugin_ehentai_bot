@@ -98,8 +98,6 @@ class Downloader:
                 last_exception = e
                 if attempt == max_retries - 1:
                     logger.error(f"Failed to fetch content from {url} after {max_retries} attempts")
-                    # 抛出最后的异常以供上层诊断，并附带堆栈
-                    import traceback
                     error_msg = f"请求失败 ({url}): {str(last_exception)}\n{traceback.format_exc()}"
                     logger.error(error_msg)
                     raise Exception(error_msg)

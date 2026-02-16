@@ -912,10 +912,9 @@ class EHentaiBot(Star):
                 except Exception as e:
                     debug_info.append(f"异常: {type(e).__name__}: {e}")
                 
-                # 发送调试信息（临时）
+                # 输出调试信息到控制台
                 if debug_info:
                     print("[EH封面调试] " + " | ".join(debug_info))
-                    await event.send(event.plain_result("🔧 封面调试: " + "\n".join(debug_info)))
                 
                 # 回退：如果原图获取失败，使用缩略图
                 if not cover_img_obj:
